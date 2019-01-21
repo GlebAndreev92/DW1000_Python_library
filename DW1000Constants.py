@@ -197,72 +197,126 @@ CIR_PWR_SUB = 0x06
 
 OTP_XTAL_ADDRESS = 0x01E
 
-# System configuration register bits, see 7.2.6 of User Manual
-AACKPEND_BIT = 31       # Automatic Acknowledgement Pending bit control
-AUTOACK_BIT = 30        # Automatic Acknowledgement Enable
-RXAUTR_BIT = 29         # Receiver Auto-Re-enable
-RXWTOE_BIT = 28         # Receive Wait Timeout Enable
-# Bits 27-23 are reserved, should always be set to 0
-RXM110K_BIT = 22        # Receiver Mode 110 kpbs data rate
-# Bits 21-19 are reserved, should always be set to 0
-DIS_STXP_BIT = 18       # Disable Smart TX Power Control
-PHR_MODE_BITS = (16,17) # Select PHR type (00 = Standard Frame mode, 11 = Long Frames mode)
-FCS_INIT2F_BIT = 15     # Allow selection of initial seed value for FCS generation
-DIS_RSDE_BIT = 14       # Disable receiver abort on RSD error
-DIS_PHE_BIT = 13        # Disable receiver abort on PHR error
-DIS_DRXB_BIT = 12       # Disable Double RX Buffer
-DIS_FCE_BIT = 11        # Disable frame check error handling
-SPI_EDGE_BIT = 10       # SPI data launch edge
-HIRQ_POL_BIT = 9        # Host interrupt polarity
-FFA5_BIT = 8            # Frame Filtering Allow frames with frame type field of 5 (0b101)
-FFA4_BIT = 7            # Frame Filtering Allow frames with frame type field of 4 (0b100)
-FFAR_BIT = 6            # Frame Filtering Allow Reserved frame types
-FFAM_BIT = 5            # Frame Filtering Allow MAC command frame reception
-FFAA_BIT = 4            # Frame Filtering Allow Acknoledgment frame reception
-FFAD_BIT = 3            # Frame Filtering Allow Data frame reception
-FFAB_BIT = 2            # Frame Filtering Allow Beacon frame reception
-FFBC_BIT = 1            # Frame Filtering Behave as a Coordinator
+# 0x05: System configuration register bits, see 7.2.6 of User Manual
 FFEN_BIT = 0            # Frame Filtering Enable
+FFBC_BIT = 1            # Frame Filtering Behave as a Coordinator
+FFAB_BIT = 2            # Frame Filtering Allow Beacon frame reception
+FFAD_BIT = 3            # Frame Filtering Allow Data frame reception
+FFAA_BIT = 4            # Frame Filtering Allow Acknoledgment frame reception
+FFAM_BIT = 5            # Frame Filtering Allow MAC command frame reception
+FFAR_BIT = 6            # Frame Filtering Allow Reserved frame types
+FFA4_BIT = 7            # Frame Filtering Allow frames with frame type field of 4 (0b100)
+FFA5_BIT = 8            # Frame Filtering Allow frames with frame type field of 5 (0b101)
+HIRQ_POL_BIT = 9        # Host interrupt polarity
+SPI_EDGE_BIT = 10       # SPI data launch edge
+DIS_FCE_BIT = 11        # Disable frame check error handling
+DIS_DRXB_BIT = 12       # Disable Double RX Buffer
+DIS_PHE_BIT = 13        # Disable receiver abort on PHR error
+DIS_RSDE_BIT = 14       # Disable receiver abort on RSD error
+FCS_INIT2F_BIT = 15     # Allow selection of initial seed value for FCS generation
+PHR_MODE_BITS = (16,17) # Select PHR type (00 = Standard Frame mode, 11 = Long Frames mode)
+DIS_STXP_BIT = 18       # Disable Smart TX Power Control
+# Bits 19-21 are reserved, should always be set to 0
+RXM110K_BIT = 22        # Receiver Mode 110 kpbs data rate
+# Bits 23-27 are reserved, should always be set to 0
+RXWTOE_BIT = 28         # Receive Wait Timeout Enable
+RXAUTR_BIT = 29         # Receiver Auto-Re-enable
+AUTOACK_BIT = 30        # Automatic Acknowledgement Enable
+AACKPEND_BIT = 31       # Automatic Acknowledgement Pending bit control
 
-# System control register bits, see 7.2.15 of User Manual
-SFCST_BIT = 0
-TXSTRT_BIT = 1
-TXDLYS_BIT = 2
-TRXOFF_BIT = 6
-RXENAB_BIT = 8
-RXDLYE_BIT = 9
+# 0x0D: System control register bits, see 7.2.15 of User Manual
+SFCST_BIT = 0           # Suppress auto-FCS Transmission
+TXSTRT_BIT = 1          # Transmit Start
+TXDLYS_BIT = 2          # Transmitter Delayed Sending
+CANSFCS_BIT = 3         # Cancel Suppression of auto-FCS transmission
+TRXOFF_BIT = 6          # Transceiver Off
+WAIT4RESP_BIT = 7       # Wait for Response
+RXENAB_BIT = 8          # Enable Receiver
+RXDLYE_BIT = 9          # Receiver Delayed Enable
+HRBPT_BIT = 24          # Host Side Receive Buffer Pointer Toggle
 
-# System event mask register bits, see 7.2.16 of User Manual
-MAAT_BIT = 3
-MTXFRS_BIT = 7
-MLDEDONE_BIT = 10
-MRXPHE_BIT = 12
-MRXDFR_BIT = 13
-MRXFCG_BIT = 14
-MRXFCE_BIT = 15
-MRXRFSL_BIT = 16
-MLDEERR_BIT = 18
+# 0x0E: System event mask register bits, see 7.2.16 of User Manual
+MCPLOCK_BIT = 1         # Mask clock PLL lock event
+MESYNCR_BIT = 2         # Mask external sync clock reset event
+MAAT_BIT = 3            # Mask automatic acknowledge trigger event
+MTXFRB_BIT = 4          # Mask transmit frame begins event
+MTXPRS_BIT = 5          # Mask transmit preamble sent event
+MTXPHS_BIT = 6          # Mask transmit PHY Header Sent event
+MTXFRS_BIT = 7          # Mask transmit frame sent event
+MRXPRD_BIT = 8          # Mask receiver preamble detection event
+MRXSFDD_BIT = 9         # Mask receiver SFD detected event
+MLDEDONE_BIT = 10       # Mask LDE processing done event
+MRXPHD_BIT = 11         # Mask receiver PHY header detect event
+MRXPHE_BIT = 12         # Mask receiver PHY header error event
+MRXDFR_BIT = 13         # Mask receiver data frame ready event
+MRXFCG_BIT = 14         # Mask receiver FCS good event
+MRXFCE_BIT = 15         # Mask receiver FCS error event
+MRXRFSL_BIT = 16        # Mask receiver Reed Solomon Frame Sync Loss event
+MRXRFTO_BIT = 17        # Mask Receive Frame Wait Timeout event
+MLDEERR_BIT = 18        # Mask leading edge detection processing error event
+MRXOVRR_BIT = 20        # Mask Receiver Overrun event
+MRXPTO_BIT = 21         # Mask Preamble detection timeout event
+MGPIOIRQ_BIT = 22       # Mask GPIO interrupt event
+MSLP2INIT_BIT = 23      # Mask SLEEP to INIT event
+MRFPLLL_BIT = 24        # Mask RF PLL Losing Lock warning event
+MCPLLLL_BIT = 25        # Mask Clock PLL Losing Lock warning event
+MRXSFDTO_BIT = 26       # Mask Receive SFD timeout event
+MHPDWARN_BIT = 27       # Mask Half Period Delay Warning event
+MTXBERR_BIT = 28        # Mask Transmit Buffer Error event
+MAFFREJ_BIT = 29        # Mask Automatic Frame Filtering rejection event
 
-# System event status register bits, see 7.2.17 of User Manual
-TXFRB_BIT = 4
-TXPRS_BIT = 5
-TXPHS_BIT = 6
-TXFRS_BIT = 7
-LDEDONE_BIT = 10
-RXPHE_BIT = 12
-RXDFR_BIT = 13
-RXFCG_BIT = 14
-RXFCE_BIT = 15
-RXRFSL_BIT = 16
-RXRFTO_BIT = 17
-LDEERR_BIT = 18
-RXPTO_BIT = 21
-RXSFDTO_BIT = 26
+# 0x0F: System event status register bits, see 7.2.17 of User Manual
+IRQS_BIT = 0            # Interrupt Request Status
+CPLOCK_BIT = 1          # Clock PLL Lock
+ESYNCR_BIT = 2          # External Sync Clock Reset
+AAT_BIT = 3             # Automatic Acknowledge Trigger
+TXFRB_BIT = 4           # Transmit Frame Begins
+TXPRS_BIT = 5           # Transmit Preamble Sent
+TXPHS_BIT = 6           # Transmit PHY Header Sent
+TXFRS_BIT = 7           # Transmit Frame Sent
+RXPRD_BIT = 8           # Receiver Preamble Detected status
+RXSFDD_BIT = 9          # Receiver SFD Detected
+LDEDONE_BIT = 10        # LDE processing done
+RXPHD_BIT = 11          # Receiver PHY Header Detect
+RXPHE_BIT = 12          # Receiver PHY Header Error
+RXDFR_BIT = 13          # Receiver Data Frame Ready
+RXFCG_BIT = 14          # Receiver FCS Good
+RXFCE_BIT = 15          # Receiver FCS Error
+RXRFSL_BIT = 16         # Receiver Reed Solomon Frame Sync Loss
+RXRFTO_BIT = 17         # Receiver Frame Wait Timeout
+LDEERR_BIT = 18         # Leading edge detection processing error
+RXOVRR_BIT = 20         # Receiver Overrun
+RXPTO_BIT = 21          # Preamble detection timeout
+GPIOIRQ_BIT = 22        # GPIO interrupt
+SLP2INIT_BIT = 23       # SLLEP to INIT
+RFPLL_LL_BIT = 24       # RF PLL Losing Lock
+CLKPLL_LL_BIT = 25      # Clock PLL Losing Lock
+RXSFDTO_BIT = 26        # Receive SFD timeout
+HPDWARN_BIT = 27        # Half Period Delay Warning
+TXBERR_BIT = 28         # Transmit Buffer Error
+AFFREJ_BIT = 29         # Automatic Frame Filtering rejection
+HSRBP_BIT = 30          # Host Side Receive Buffer Pointer
+ICRBP_BIT = 31          # IC side Receive Buffer Pointer
+RXRSCS_BIT = 32         # Receiver Reed-Solomon Correction Status
+RXPREJ_BIT = 33         # Receiver Preamble Rejection
+TXPUTE_BIT = 34         # Transmit power up time error
 
-# Channel control register bits, see 7.2.32 of user manual
+# 0x1F: Channel control register bits, see 7.2.32 of user manual
 DWSFD_BIT = 17
 TNSSFD_BIT = 20
 RNSSFD_BIT = 21
+
+# 0x26: GPIO control and status sub registers, see 7.2.39 of user manual
+GPIO_MODE = 0x00        # GPIO Mode Control register        RW  4
+GPIO_DIR = 0x08         # GPIO Direction control register   RW  4
+GPIO_DOUT = 0x0C        # GPIO Data Output register         RW  4
+GPIO_IRQE = 0x10        # GPIO Interrupt Enable             RW  4
+GPIO_ISEN = 0x14        # GPIO Interrupt Sense Selection    RW  4
+GPIO_IMODE = 0x18       # GPIO Interrupt Mode (Level/Edge)  RW  4
+GPIO_IBES = 0x1C        # GPIO Interrupt "Both Edge" Select RW  4
+GPIO_ICLR = 0x20        # GPIO Interrupt Latch Clear        RW  4
+GPIO_IDBE = 0x24        # GPIO Interrupt De-bounce Enable   RW  4
+GPIO_RAW = 0x28         # GPIO raw state                    RO  4
 
 # Enable clock masks
 ENABLE_CLOCK_MASK1 = 0xFE
