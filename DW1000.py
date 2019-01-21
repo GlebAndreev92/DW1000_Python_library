@@ -45,8 +45,8 @@ def begin(irq):
     # Wait 5 us to open spi connection to let the chip enter idle state, see 2.3.2 of the DW1000 user manual (INIT).
     time.sleep(C.INIT_DELAY)
     GPIO.setmode(GPIO.BCM)
-    spi.open(0, 0)
-    spi.max_speed_hz = 4000000
+    spi.open(0, 1)
+    spi.max_speed_hz = 1953000
     _deviceMode = C.IDLE_MODE
     GPIO.setup(irq, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
@@ -62,6 +62,7 @@ def setup(ss):
             ss: The GPIO pin number of the chip enable/select for the SPI bus.
     """
     global _chipSelect, _syscfg, _sysmask
+
     _chipSelect = ss
     GPIO.setup(_chipSelect, GPIO.OUT)
     GPIO.output(_chipSelect, GPIO.HIGH)
@@ -89,7 +90,7 @@ def handleInterrupt(channel):
     """
     Callback invoked on the rising edge of the interrupt pin. Handle the configured interruptions.
     """
-    # print("\nInterrupt!")
+    print("\nInterrupt!")
     readBytes(C.SYS_STATUS, C.NO_SUB, _sysstatus, 5)
     # print(_sysstatus)
     msgReceived = getBit(_sysstatus, 5, C.RXFCG_BIT)
@@ -478,10 +479,8 @@ def generalConfiguration(address, mode):
             address: The string address you want to set the device to.
     """
     currentAddress = convertStringToByte(address)
-    currentShortAddress = [0] * 2
+    currentShortAddress = currentAddress[-2:]
     setEUI(currentAddress)
-    currentShortAddress[0] = randint(0, 256)
-    currentShortAddress[1] = randint(0, 256)
     deviceAddress = currentShortAddress[0] * 256 + currentShortAddress[1]
 
     # configure mode, network
@@ -1332,13 +1331,13 @@ def readBytes(cmd, offset, data, n):
             headerLen = headerLen + 2
 
     GPIO.output(_chipSelect, GPIO.LOW)
-    for i in range(0, headerLen):
-        spi.xfer([int(header[i])])
 
-    for i in range(0, n):
-        data[i] = spi.xfer([C.JUNK])[0]
+    _data = spi.xfer2(header[0:headerLen] + [C.JUNK] * n)
 
     GPIO.output(_chipSelect, GPIO.HIGH)
+
+    for i in range(0, n):
+        data[i] = _data[headerLen + i]
 
 
 def writeBytes(cmd, offset, data, dataSize):
@@ -1367,12 +1366,8 @@ def writeBytes(cmd, offset, data, dataSize):
             headerLen = headerLen + 2
 
     GPIO.output(_chipSelect, GPIO.LOW)
-    for i in range(0, headerLen):
-        spi.xfer([int(header[i])])
 
-    for i in range(0, dataSize):
-        if (data[i] != None):
-            spi.xfer([int(data[i])])
+    spi.xfer2(header[0:headerLen] + data[0:dataSize])
 
     GPIO.output(_chipSelect, GPIO.HIGH)
 
