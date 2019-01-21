@@ -86,38 +86,71 @@ PAC_SIZE_16 = 16
 PAC_SIZE_32 = 32
 PAC_SIZE_64 = 64
 
-# Registers ID
-DEV_ID = 0x00
-EUI = 0x01
-PANADR = 0x03
-SYS_CFG = 0x04
-SYS_TIME = 0x06
-TX_FCTRL = 0x08
-DX_TIME = 0x0A
-SYS_CTRL = 0x0D
-SYS_MASK = 0x0E
-SYS_STATUS = 0x0F
-TX_BUFFER = 0x09
-RX_FINFO = 0x10
-RX_BUFFER = 0x11
-RX_FQUAL = 0x12
-RX_TIME = 0x15
-TX_TIME = 0x17
-TX_ANTD = 0x18
-TX_POWER = 0x1E
-CHAN_CTRL = 0x1F
-USR_SFD = 0x21
-AGC_CTRL = 0x23
-EXT_SYNC = 0x24
-ACC_MEM = 0x25
-GPIO_CTRL = 0x26
-DRX_CONF = 0x27
-RF_CONF = 0x28
-TX_CAL = 0x2A
-FS_CTRL = 0x2B
-OTP_IF = 0x2D
-LDE_CTRL = 0x2E
-PMSC = 0x36
+# Register file IDs     Description                                 R/W Octets
+DEV_ID = 0x00           # Device Identifier                         RO  4
+EUI = 0x01              # Extended Unique Identifier                RW  8
+# Reserved 0x02
+PANADR = 0x03           # PAN Identifier and Short Address          RW  4
+SYS_CFG = 0x04          # System Configuration                      RW  4
+# Reserved 0x05         
+SYS_TIME = 0x06         # System Time Counter                       RO  5
+# Reserved 0x07
+TX_FCTRL = 0x08         # Transmit Frame Control                    RW  5
+TX_BUFFER = 0x09        # Transmit Data Buffer                      RW  1024
+DX_TIME = 0x0A          # Delayed Send or Receive Time              RW  5
+# Reserved 0x0B
+RX_FWTO = 0x0C          # Receive Frame Wait Timeout Period         RW  2
+SYS_CTRL = 0x0D         # System Control Register                   SRW 4
+SYS_MASK = 0x0E         # System Event Mask Register                RW  4
+SYS_STATUS = 0x0F       # System Event Status Register              SRW 5
+RX_FINFO = 0x10         # RX Frame Information Register             ROD 4
+RX_BUFFER = 0x11        # RX Frame Buffer                           RWD 1024
+RX_FQUAL = 0x12         # RX Frame Quality Information              ROD 8
+RX_TTCKI = 0x13         # Receiver Time Tracking Interval           ROD 4
+RX_TTCKO = 0x14         # Receiver Time Tracking Offset             ROD 5
+RX_TIME = 0x15          # Receive Time Stamp                        ROD 14
+# Reserved 0x16
+TX_TIME = 0x17          # Transmit Time Stamp                       RO  10
+TX_ANTD = 0x18          # Transmitter Antenna Delay                 RW  2
+# Reserved 0x19
+ACK_RESP_T = 0x1A       # Acknowledement Time and Response Time     RW  4
+# Reserved 0x1B
+# Reserved 0x1C
+RX_SNIFF = 0x1D         # SNIFF Mode                                RW  4
+TX_POWER = 0x1E         # Transmit Power Control                    RW  4
+CHAN_CTRL = 0x1F        # Channel Control                           SRW 4
+# Reserved 0x20
+USR_SFD = 0x21          # User defined SFD sequence                 RW  41
+# Reserved 0x22         
+AGC_CTRL = 0x23         # AGC configuration and control             RW  32
+EXT_SYNC = 0x24         # External Synchronisation Control          RW  12
+ACC_MEM = 0x25          # Accumulator CIR memory                    RO  4064
+GPIO_CTRL = 0x26        # GPIO control and status                   RW  44
+DRX_CONF = 0x27         # Digital receiver configuration            -   -
+RF_CONF = 0x28          # Analog RF configuration block             -   -
+# Reserved 0x29
+TX_CAL = 0x2A           # Transmitter Calibration block             -   -         
+FS_CTRL = 0x2B          # Frequency synthesiser control block       -   -
+AON = 0x2C              # Always-on system control interface        -   -
+OTP_IF = 0x2D           # OTP Memory Interface                      -   -
+LDE_CTRL = 0x2E         # Leading Edge Detection Interface          -   -
+DIG_DIAG = 0x2F         # Digital Diagnostics Interface             -   41
+# Reserved 0x30
+# Reserved 0x31
+# Reserved 0x32
+# Reserved 0x33
+# Reserved 0x34
+# Reserved 0x35
+PMSC = 0x36             # Power Management and System Control       -   -
+# Reserved 0x37
+# Reserved 0x38
+# Reserved 0x39
+# Reserved 0x3A
+# Reserved 0x3B
+# Reserved 0x3C
+# Reserved 0x3D
+# Reserved 0x3E
+# Reserved 0x3F
 
 # Registers offset
 NO_SUB = 0xFF
@@ -165,12 +198,31 @@ CIR_PWR_SUB = 0x06
 OTP_XTAL_ADDRESS = 0x01E
 
 # System configuration register bits, see 7.2.6 of User Manual
-DIS_DRXB_BIT = 12
-HIRQ_POL_BIT = 9
-RXM110K_BIT = 22
-RXAUTR_BIT = 29
-FFEN_BIT = 0
-DIS_STXP_BIT = 18
+AACKPEND_BIT = 31       # Automatic Acknowledgement Pending bit control
+AUTOACK_BIT = 30        # Automatic Acknowledgement Enable
+RXAUTR_BIT = 29         # Receiver Auto-Re-enable
+RXWTOE_BIT = 28         # Receive Wait Timeout Enable
+# Bits 27-23 are reserved, should always be set to 0
+RXM110K_BIT = 22        # Receiver Mode 110 kpbs data rate
+# Bits 21-19 are reserved, should always be set to 0
+DIS_STXP_BIT = 18       # Disable Smart TX Power Control
+PHR_MODE_BITS = (16,17) # Select PHR type (00 = Standard Frame mode, 11 = Long Frames mode)
+FCS_INIT2F_BIT = 15     # Allow selection of initial seed value for FCS generation
+DIS_RSDE_BIT = 14       # Disable receiver abort on RSD error
+DIS_PHE_BIT = 13        # Disable receiver abort on PHR error
+DIS_DRXB_BIT = 12       # Disable Double RX Buffer
+DIS_FCE_BIT = 11        # Disable frame check error handling
+SPI_EDGE_BIT = 10       # SPI data launch edge
+HIRQ_POL_BIT = 9        # Host interrupt polarity
+FFA5_BIT = 8            # Frame Filtering Allow frames with frame type field of 5 (0b101)
+FFA4_BIT = 7            # Frame Filtering Allow frames with frame type field of 4 (0b100)
+FFAR_BIT = 6            # Frame Filtering Allow Reserved frame types
+FFAM_BIT = 5            # Frame Filtering Allow MAC command frame reception
+FFAA_BIT = 4            # Frame Filtering Allow Acknoledgment frame reception
+FFAD_BIT = 3            # Frame Filtering Allow Data frame reception
+FFAB_BIT = 2            # Frame Filtering Allow Beacon frame reception
+FFBC_BIT = 1            # Frame Filtering Behave as a Coordinator
+FFEN_BIT = 0            # Frame Filtering Enable
 
 # System control register bits, see 7.2.15 of User Manual
 SFCST_BIT = 0
