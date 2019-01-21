@@ -39,6 +39,7 @@ def handleSent():
     This is a callback called from the module's interrupt handler when a transmission was successful. 
     It sets the sentAck variable as True so the loop can continue.
     """            
+    print("Send")
     global sentAck
     sentAck = True
 
@@ -48,6 +49,7 @@ def handleReceived():
     This is a callback called from the module's interrupt handler when a reception was successful. 
     It sets the received receivedAck as True so the loop can continue.
     """       
+    print("Received")
     global receivedAck
     receivedAck = True
 
@@ -173,14 +175,15 @@ def loop():
 
 
 try:    
-    PIN_IRQ = 19
-    PIN_SS = 16
-    DW1000.begin(PIN_IRQ)
+    PIN_IRQ = 16
+    PIN_SS = 8
+    PIN_RST = 12
+    DW1000.begin(PIN_IRQ, PIN_RST)
     DW1000.setup(PIN_SS)
     print("DW1000 initialized")
     print("############### ANCHOR ##############")
 
-    DW1000.generalConfiguration("82:17:5B:D5:A9:9A:E2:9C", C.MODE_LONGDATA_RANGE_ACCURACY)
+    DW1000.generalConfiguration("82:17:5B:D5:A9:9A:E2:00", C.MODE_LONGDATA_RANGE_ACCURACY)
     DW1000.registerCallback("handleSent", handleSent)
     DW1000.registerCallback("handleReceived", handleReceived)
     DW1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)

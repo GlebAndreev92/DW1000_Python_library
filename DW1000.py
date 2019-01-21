@@ -33,7 +33,20 @@ DW1000 general configuration.
 """
 
 
-def begin(irq):
+def hardReset(reset_pin):
+    """
+    This function resets the DW1000 module
+
+    Args:
+            reset_pin : The GPIO pin number connected to the DW1000 reset line
+    """
+    # Low for 100ms for reset
+    GPIO.setup(reset_pin, GPIO.OUT, initial=GPIO.LOW)
+    time.sleep(0.10)
+    # Reset pin to high impedance open drain
+    GPIO.cleanup(reset_pin)
+
+def begin(irq, reset_pin):
     """
     This function opens the SPI connection available on the Raspberry Pi using the chip select #0. Normally, spidev can auto enable chip select when necessary. However, in our case, the dw1000's chip select is connected to GPIO16 so we have to enable/disable it manually.
     It also sets up the interrupt detection event on the rising edge of the interrupt pin.
@@ -42,9 +55,12 @@ def begin(irq):
             irq : The GPIO pin number managing interrupts.
     """
     global _deviceMode
+
+    GPIO.setmode(GPIO.BCM)
+    hardReset(reset_pin)
+
     # Wait 5 us to open spi connection to let the chip enter idle state, see 2.3.2 of the DW1000 user manual (INIT).
     time.sleep(C.INIT_DELAY)
-    GPIO.setmode(GPIO.BCM)
     spi.open(0, 1)
     spi.max_speed_hz = 1953000
     _deviceMode = C.IDLE_MODE
@@ -195,7 +211,8 @@ def setDefaultConfiguration():
         _syscfg[2] |= 0x00
         
         setBit(_syscfg, 4, C.DIS_STXP_BIT, True)
-        setBit(_syscfg, 4, C.FFEN_BIT, False)
+        setBit(_syscfg, 4, C.RXAUTR_BIT, True)
+        setBit(_syscfg, 4, C.FFEN_BIT, True)
         
         # interrupt on sent
         setBit(_sysmask, 4, C.MTXFRS_BIT, True)
