@@ -24,6 +24,7 @@ _syscfg = [0] * 4
 _sysmask = [0] * 4
 _txfctrl = [0] * 5
 _sysstatus = [0] * 5
+_gpioctrlstatus = [0] * 44
 
 GPIO.setwarnings(False)
 
@@ -92,6 +93,9 @@ def setup(ss):
     setBit(_syscfg, 4, C.DIS_DRXB_BIT, True)
     setBit(_syscfg, 4, C.HIRQ_POL_BIT, True)
     writeBytes(C.SYS_CFG, C.NO_SUB, _syscfg, 4)
+
+    # Default DW1000 GPIO configuration
+    setArray(_gpioctrlstatus, 44, 0x00)
 
     # clear interrupts configuration
     setArray(_sysmask, 4, 0x00)
@@ -212,7 +216,12 @@ def setDefaultConfiguration():
         
         setBit(_syscfg, 4, C.DIS_STXP_BIT, True)
         setBit(_syscfg, 4, C.RXAUTR_BIT, True)
+        setBit(_syscfg, 4, C.AUTOACK_BIT, True)
         setBit(_syscfg, 4, C.FFEN_BIT, True)
+        setBit(_syscfg, 4, C.FFAB_BIT, True)
+        setBit(_syscfg, 4, C.FFAD_BIT, True)
+        setBit(_syscfg, 4, C.FFAA_BIT, True)
+        setBit(_syscfg, 4, C.FFAM_BIT, True)
         
         # interrupt on sent
         setBit(_sysmask, 4, C.MTXFRS_BIT, True)
@@ -228,8 +237,6 @@ def setDefaultConfiguration():
         setBit(_sysmask, 4, C.MLDEDONE_BIT, False)
         # interrupt on auto acknowledge trigger
         setBit(_sysmask, 4, C.MAAT_BIT, True)
-        # set receiver auto reenable
-        setBit(_syscfg, 4, C.RXAUTR_BIT,  True)
 
         clearAllStatus()
 
