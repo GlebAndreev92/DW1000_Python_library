@@ -155,6 +155,12 @@ PMSC = 0x36             # Power Management and System Control       -   -
 # Registers offset
 NO_SUB = 0xFF
 PMSC_CTRL0_SUB = 0x00
+PMSC_CTRL1_SUB = 0x04
+PMSC_RES1_SUB = 0x08
+PMSC_SNOZT_SUB = 0x0C
+PMSC_RES2_SUB = 0x10
+PMSC_TXFSEQ_SUB = 0x26
+PMSC_LEDC_SUB = 0x28
 SFD_LENGTH_SUB = 0x00
 # OTP_IF subregisters
 OTP_ADDR_SUB = 0x04
@@ -307,26 +313,37 @@ TNSSFD_BIT = 20
 RNSSFD_BIT = 21
 
 # 0x26: GPIO control and status sub registers, see 7.2.39 of user manual
-GPIO_MODE = 0x00        # GPIO Mode Control register        RW  4
-GPIO_DIR = 0x08         # GPIO Direction control register   RW  4
-GPIO_DOUT = 0x0C        # GPIO Data Output register         RW  4
-GPIO_IRQE = 0x10        # GPIO Interrupt Enable             RW  4
-GPIO_ISEN = 0x14        # GPIO Interrupt Sense Selection    RW  4
-GPIO_IMODE = 0x18       # GPIO Interrupt Mode (Level/Edge)  RW  4
-GPIO_IBES = 0x1C        # GPIO Interrupt "Both Edge" Select RW  4
-GPIO_ICLR = 0x20        # GPIO Interrupt Latch Clear        RW  4
-GPIO_IDBE = 0x24        # GPIO Interrupt De-bounce Enable   RW  4
-GPIO_RAW = 0x28         # GPIO raw state                    RO  4
+GPIO_MODE_SUB = 0x00        # GPIO Mode Control register        RW  4
+GPIO_DIR_SUB = 0x08         # GPIO Direction control register   RW  4
+GPIO_DOUT_SUB = 0x0C        # GPIO Data Output register         RW  4
+GPIO_IRQE_SUB = 0x10        # GPIO Interrupt Enable             RW  4
+GPIO_ISEN_SUB = 0x14        # GPIO Interrupt Sense Selection    RW  4
+GPIO_IMODE_SUB = 0x18       # GPIO Interrupt Mode (Level/Edge)  RW  4
+GPIO_IBES_SUB = 0x1C        # GPIO Interrupt "Both Edge" Select RW  4
+GPIO_ICLR_SUB = 0x20        # GPIO Interrupt Latch Clear        RW  4
+GPIO_IDBE_SUB = 0x24        # GPIO Interrupt De-bounce Enable   RW  4
+GPIO_RAW_SUB = 0x28         # GPIO raw state                    RO  4
 
 # Enable clock masks
 ENABLE_CLOCK_MASK1 = 0xFE
 ENABLE_CLOCK_MASK2 = 0xFC
 
+# 0x36 0x4: PMSCCTRL0 bits and preconfigured bytes
+PMSC_CTRL0_GPCE_BIT = 16
+PMSC_CTRL0_GPRN_BIT = 17
+PMSC_CTRL0_GPDCE_BIT = 18
+PMSC_CTRL0_GPDRN_BIT = 19
 # PMSC operation data bytes
 # SOFTRESET operations, see SOFTRESET section in 7.2.50.1 of the user manual
 SOFT_RESET_SYSCLKS = 0x01
 SOFT_RESET_CLEAR = 0x00
 SOFT_RESET_SET = 0xF0
+
+# 0x36 0x28: PMSCLEDC bits and preconfigured bytes
+PMSC_LEDC_BLINKEN_BIT = 8
+PMSC_LEDC_BLINK_TIM_BYTE = 0x20
+PMSC_LEDC_BLINKNOW_BYTE = 0x00
+
 # Register access operations to load LDE microcode, see table 4 in 2.5.5.10 of the user manual
 LDE_L1STEP1 = 0x01
 LDE_L1STEP2 = 0x03

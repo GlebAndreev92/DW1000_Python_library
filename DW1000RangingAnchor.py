@@ -181,7 +181,6 @@ try:
     PIN_RST = 12
     dw1000 = DW1000(PIN_SS, PIN_RST, PIN_IRQ)
     dw1000.begin()
-    dw1000.setup()
     print("DW1000 initialized")
     print("############### ANCHOR ##############")
 

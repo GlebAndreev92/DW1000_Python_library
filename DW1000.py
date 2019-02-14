@@ -34,8 +34,9 @@ class DW1000:
         self.sysmask = DW1000Register(C.SYS_MASK, C.NO_SUB, 4)
         self.txfctrl = DW1000Register(C.TX_FCTRL, C.NO_SUB, 5)
         self.sysstatus = DW1000Register(C.SYS_STATUS, C.NO_SUB, 5)
-        self.gpiomode = DW1000Register(C.GPIO_CTRL, C.GPIO_MODE, 4)
+        self.gpiomode = DW1000Register(C.GPIO_CTRL, C.GPIO_MODE_SUB, 4)
         self.pmscctrl0 = DW1000Register(C.PMSC, C.PMSC_CTRL0_SUB, 4)
+        self.pmscledc = DW1000Register(C.PMSC, C.PMSC_LEDC_SUB, 4)
         self.otpctrl = DW1000Register(C.OTP_IF, C.OTP_CTRL_SUB, 2)
         self.panadr = DW1000Register(C.PANADR, C.NO_SUB, 4)
         self.eui = DW1000Register(C.EUI, C.NO_SUB, 8)
@@ -68,17 +69,6 @@ class DW1000:
             logging.error(str(e))
             raise
 
-        logging.info("Started DW1000")
-
-
-    def setup(self):
-        """
-        This function defines the GPIO used for the chip select by configuring it as an output and by setting its initial state at inactive (HIGH).
-        It also clears interrupt configuration and performs a soft reset before applying initial configurations for the chip.
-
-        Args:
-                ss: The GPIO pin number of the chip enable/select for the SPI bus.
-        """
         self.enableClock(C.AUTO_CLOCK)
 
         self.softReset()
@@ -88,10 +78,17 @@ class DW1000:
         self.syscfg.setBits((C.DIS_DRXB_BIT, C.HIRQ_POL_BIT), True)
         self.writeRegister(self.syscfg)
 
-        # Default DW1000 GPIO configuration
+        # Default DW1000 GPIO configuration, enable LEDS
         self.gpiomode.clear()
         self.gpiomode.setBits((6, 8, 10, 12), True)
         self.writeRegister(self.gpiomode)
+        self.readRegister(self.pmscctrl0)
+        self.pmscctrl0[2] = 0b10000100
+        self.writeRegister(self.pmscctrl0)
+        self.pmscledc.clear()
+        self.pmscledc[0] = C.PMSC_LEDC_BLINK_TIM_BYTE
+        self.pmscledc.setBit(C.PMSC_LEDC_BLINKEN_BIT, True)
+        self.writeRegister(self.pmscledc)
 
         # clear interrupts configuration
         self.sysmask.clear()
@@ -100,6 +97,8 @@ class DW1000:
         self.enableClock(C.XTI_CLOCK)
         self.manageLDE()
         self.enableClock(C.AUTO_CLOCK)
+
+        logging.info("Started DW1000")
 
 
     def stop(self):
