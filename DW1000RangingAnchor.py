@@ -4,10 +4,11 @@ It requires the following modules: DW1000, DW1000Constants and monotonic.
 """
 
 
-import DW1000
-import monotonic
+from DW1000 import DW1000
 import DW1000Constants as C
+import time
 
+dw1000 = None
 
 lastActivity = 0
 expectedMsgId = C.POLL
@@ -31,7 +32,7 @@ def millis():
     This function returns the value (in milliseconds) of a clock which never goes backwards. It detects the inactivity of the chip and
     is used to avoid having the chip stuck in an undesirable state.
     """    
-    return int(round(monotonic.monotonic() * C.MILLISECONDS))
+    return int(round(time.monotonic() * C.MILLISECONDS))
 
 
 def handleSent():
@@ -77,60 +78,60 @@ def transmitPollAck():
     """
     This function sends the polling acknowledge message which is used to confirm the reception of the polling message. 
     """        
-    global data
-    DW1000.newTransmit()
+    global data, dw1000
+    dw1000.newTransmit()
     data[0] = C.POLL_ACK
-    DW1000.setDelay(REPLY_DELAY_TIME_US, C.MICROSECONDS)
-    DW1000.setData(data, LEN_DATA)
-    DW1000.startTransmit()
+    dw1000.setDelay(REPLY_DELAY_TIME_US, C.MICROSECONDS)
+    dw1000.setData(data, LEN_DATA)
+    dw1000.startTransmit()
 
 
 def transmitRangeAcknowledge():
     """
     This functions sends the range acknowledge message which tells the tag that the ranging function was successful and another ranging transmission can begin.
     """
-    global data
-    DW1000.newTransmit()
+    global data, dw1000
+    dw1000.newTransmit()
     data[0] = C.RANGE_REPORT
-    DW1000.setData(data, LEN_DATA)
-    DW1000.startTransmit()
+    dw1000.setData(data, LEN_DATA)
+    dw1000.startTransmit()
 
 
 def transmitRangeFailed():
     """
     This functions sends the range failed message which tells the tag that the ranging function has failed and to start another ranging transmission.
     """    
-    global data
-    DW1000.newTransmit()
+    global data, dw1000
+    dw1000.newTransmit()
     data[0] = C.RANGE_FAILED
-    DW1000.setData(data, LEN_DATA)
-    DW1000.startTransmit()
+    dw1000.setData(data, LEN_DATA)
+    dw1000.startTransmit()
 
 
 def receiver():
     """
     This function configures the chip to prepare for a message reception.
     """    
-    global data
-    DW1000.newReceive()
-    DW1000.receivePermanently()
-    DW1000.startReceive()
+    global data, dw1000
+    dw1000.newReceive()
+    dw1000.receivePermanently()
+    dw1000.startReceive()
 
 
 def computeRangeAsymmetric():
     """
     This is the function which calculates the timestamp used to determine the range between the devices.
     """
-    global timeComputedRangeTS
-    round1 = DW1000.wrapTimestamp(timePollAckReceivedTS - timePollSentTS)
-    reply1 = DW1000.wrapTimestamp(timePollAckSentTS - timePollReceivedTS)
-    round2 = DW1000.wrapTimestamp(timeRangeReceivedTS - timePollAckSentTS)
-    reply2 = DW1000.wrapTimestamp(timeRangeSentTS - timePollAckReceivedTS)
+    global timeComputedRangeTS, dw1000
+    round1 = dw1000.wrapTimestamp(timePollAckReceivedTS - timePollSentTS)
+    reply1 = dw1000.wrapTimestamp(timePollAckSentTS - timePollReceivedTS)
+    round2 = dw1000.wrapTimestamp(timeRangeReceivedTS - timePollAckSentTS)
+    reply2 = dw1000.wrapTimestamp(timeRangeSentTS - timePollAckReceivedTS)
     timeComputedRangeTS = (round1 * round2 - reply1 * reply2) / (round1 + round2 + reply1 + reply2)
 
 
 def loop():
-    global sentAck, receivedAck, timePollAckSentTS, timePollReceivedTS, timePollSentTS, timePollAckReceivedTS, timeRangeReceivedTS, protocolFailed, data, expectedMsgId, timeRangeSentTS
+    global sentAck, receivedAck, timePollAckSentTS, timePollReceivedTS, timePollSentTS, timePollAckReceivedTS, timeRangeReceivedTS, protocolFailed, data, expectedMsgId, timeRangeSentTS, dw1000
     if (sentAck == False and receivedAck == False):
         if ((millis() - lastActivity) > C.RESET_PERIOD):
             resetInactive()
@@ -140,28 +141,28 @@ def loop():
         sentAck = False
         msgId = data[0]
         if msgId == C.POLL_ACK:
-            timePollAckSentTS = DW1000.getTransmitTimestamp()
+            timePollAckSentTS = dw1000.getTransmitTimestamp()
             noteActivity()
 
     if receivedAck:
         receivedAck = False
-        data = DW1000.getData(LEN_DATA)
+        data = dw1000.getData(LEN_DATA)
         msgId = data[0]
         if msgId != expectedMsgId:
             protocolFailed = True
         if msgId == C.POLL:
             protocolFailed = False
-            timePollReceivedTS = DW1000.getReceiveTimestamp()
+            timePollReceivedTS = dw1000.getReceiveTimestamp()
             expectedMsgId = C.RANGE
             transmitPollAck()
             noteActivity()
         elif msgId == C.RANGE:
-            timeRangeReceivedTS = DW1000.getReceiveTimestamp()
+            timeRangeReceivedTS = dw1000.getReceiveTimestamp()
             expectedMsgId = C.POLL
             if protocolFailed == False:
-                timePollSentTS = DW1000.getTimeStamp(data, 1)
-                timePollAckReceivedTS = DW1000.getTimeStamp(data, 6)
-                timeRangeSentTS = DW1000.getTimeStamp(data, 11)
+                timePollSentTS = dw1000.getTimeStamp(data, 1)
+                timePollAckReceivedTS = dw1000.getTimeStamp(data, 6)
+                timeRangeSentTS = dw1000.getTimeStamp(data, 11)
                 computeRangeAsymmetric()
                 transmitRangeAcknowledge()
                 distance = (timeComputedRangeTS % C.TIME_OVERFLOW) * C.DISTANCE_OF_RADIO
@@ -178,15 +179,16 @@ try:
     PIN_IRQ = 16
     PIN_SS = 8
     PIN_RST = 12
-    DW1000.begin(PIN_IRQ, PIN_RST)
-    DW1000.setup(PIN_SS)
+    dw1000 = DW1000(PIN_SS, PIN_RST, PIN_IRQ)
+    dw1000.begin()
+    dw1000.setup()
     print("DW1000 initialized")
     print("############### ANCHOR ##############")
 
-    DW1000.generalConfiguration("82:17:5B:D5:A9:9A:E2:00", C.MODE_LONGDATA_RANGE_ACCURACY)
-    DW1000.registerCallback("handleSent", handleSent)
-    DW1000.registerCallback("handleReceived", handleReceived)
-    DW1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)
+    dw1000.generalConfiguration("82:17:5B:D5:A9:9A:E2:00", C.MODE_LONGDATA_RANGE_ACCURACY)
+    dw1000.registerCallback("handleSent", handleSent)
+    dw1000.registerCallback("handleReceived", handleReceived)
+    dw1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)
 
     receiver()
     noteActivity()
@@ -194,4 +196,4 @@ try:
         loop()
 
 except KeyboardInterrupt:
-    DW1000.close()
+    dw1000.close()
