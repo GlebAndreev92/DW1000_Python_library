@@ -1,4 +1,4 @@
-from construct import Struct, BitStruct, BitsInteger, Bit, Padding, Embedded, Byte, Probe, If, IfThenElse
+from construct import Struct, BitStruct, BitsInteger, Bit, Padding, Embedded, Byte, Probe, If, IfThenElse, Tell
 
 FT_BEACON = 0b000
 FT_DATA = 0b001
@@ -37,7 +37,7 @@ macHeaderStruct = Struct(
     'srcPAN'/Byte[lambda this: 2 if this.frameControl.srcAddrMode & 0b10 and this.frameControl.panCompression == 0 else 0],
     'srcAddr'/Byte[lambda this: 8 if this.frameControl.srcAddrMode == 0b11 else (2 if this.frameControl.srcAddrMode == 0b10 else 0)],
     'auxSecHdr'/Byte[lambda this: 14 if this.frameControl.secEnable else 0], # Spec says 0, 5, 6, 10, 14 but not used here
-    Probe()
+    'dataOffset'/Tell # Get size of header to later extract data
 )
 
 # Beacon
@@ -115,6 +115,7 @@ class MACHeader():
         self.srcPAN = []
         self.srcAddr = []
         self.auxSecHdr = []
+        self.dataOffset = 0
 
     def encode(self):
         global macHeaderStruct
