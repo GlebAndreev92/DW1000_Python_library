@@ -54,11 +54,6 @@ class DW1000:
         self.hardReset()
         time.sleep(C.INIT_DELAY)
 
-        # Setup Host GPIO
-        GPIO.setup(self.cs, GPIO.OUT, initial=GPIO.HIGH)
-        GPIO.setup(self.irq, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-        GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
-
         # Setup SPI
         try:
             self.spi = spidev.SpiDev()
@@ -68,6 +63,11 @@ class DW1000:
         except Exception as e:
             logging.error(str(e))
             raise
+
+        # Setup Host GPIO
+        GPIO.setup(self.cs, GPIO.OUT, initial=GPIO.HIGH)
+        GPIO.setup(self.irq, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # TODO: CHECK
+        GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
 
         self.enableClock(C.AUTO_CLOCK)
 
@@ -79,16 +79,7 @@ class DW1000:
         self.writeRegister(self.syscfg)
 
         # Default DW1000 GPIO configuration, enable LEDS
-        self.gpiomode.clear()
-        self.gpiomode.setBits((6, 8, 10, 12), True)
-        self.writeRegister(self.gpiomode)
-        self.readRegister(self.pmscctrl0)
-        self.pmscctrl0[2] = 0b10000100
-        self.writeRegister(self.pmscctrl0)
-        self.pmscledc.clear()
-        self.pmscledc[0] = C.PMSC_LEDC_BLINK_TIM_BYTE
-        self.pmscledc.setBit(C.PMSC_LEDC_BLINKEN_BIT, True)
-        self.writeRegister(self.pmscledc)
+        self.enableLeds()
 
         # clear interrupts configuration
         self.sysmask.clear()
@@ -98,12 +89,15 @@ class DW1000:
         self.manageLDE()
         self.enableClock(C.AUTO_CLOCK)
 
+        self.spi.max_speed_hz = 15600000
+
         logging.info("Started DW1000")
 
 
     def stop(self):
-        GPIO.cleanup()
         self.spi.close()
+        self.hardReset()
+        GPIO.cleanup()
         logging.info("Stopped DW1000")
 
 
@@ -132,6 +126,17 @@ class DW1000:
         self.writeRegister(self.pmscctrl0)
         self.idle()
 
+    def enableLeds(self):
+        self.gpiomode.clear()
+        self.gpiomode.setBits((6, 8, 10, 12), True)
+        self.writeRegister(self.gpiomode)
+        self.readRegister(self.pmscctrl0)
+        self.pmscctrl0[2] |= 0b10000100
+        self.writeRegister(self.pmscctrl0)
+        self.pmscledc.clear()
+        self.pmscledc[0] = C.PMSC_LEDC_BLINK_TIM_BYTE
+        self.pmscledc.setBit(C.PMSC_LEDC_BLINKEN_BIT, True)
+        self.writeRegister(self.pmscledc)
 
     def registerCallback(self, string, callback):
         """
@@ -310,7 +315,7 @@ class DW1000:
         """
         This function sets the default mode on the chip initialization : MODE_LONGDATA_RANGE_LOWPOWER and with receive/transmit mask activated when in IDLE mode.
         """
-        if (self.deviceMode == C.TX_MODE):
+        if self.deviceMode == C.TX_MODE:
             pass
         elif self.deviceMode == C.RX_MODE:
             pass
@@ -318,9 +323,10 @@ class DW1000:
             self.syscfg[2] &= C.ENABLE_MODE_MASK2
 
             self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT), True)# C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
+            self.syscfg.setBit(C.FFEN_BIT, False)
             # Enable interrupts on transmit, 
             self.sysmask.setBits((C.MTXFRS_BIT
-                                , C.MRXDFR_BIT, C.MRXFCG_BIT, C.MRXDFR_BIT
+                                , C.MRXDFR_BIT, C.MRXFCG_BIT
                                 , C.MLDEERR_BIT, C.MRXFCE_BIT, C.MRXPHE_BIT, C.MRXRFSL_BIT
                                 , C.MAAT_BIT)
                                 , True)
@@ -373,11 +379,11 @@ class DW1000:
         prealen = prealen & C.MASK_NIBBLE
         self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK4
         self.txfctrl[2] = self.txfctrl[2] | ((prealen << 2) & C.MASK_LS_BYTE)
-        if (prealen == C.TX_PREAMBLE_LEN_64 or prealen == C.TX_PREAMBLE_LEN_128):
+        if prealen == C.TX_PREAMBLE_LEN_64 or prealen == C.TX_PREAMBLE_LEN_128:
             self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_8
-        elif (prealen == C.TX_PREAMBLE_LEN_256 or prealen == C.TX_PREAMBLE_LEN_512):
+        elif prealen == C.TX_PREAMBLE_LEN_256 or prealen == C.TX_PREAMBLE_LEN_512:
             self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_16
-        elif (prealen == C.TX_PREAMBLE_LEN_1024):
+        elif prealen == C.TX_PREAMBLE_LEN_1024:
             self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_32
         else:
             self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_64
@@ -533,7 +539,7 @@ class DW1000:
         else:
             drxtune4H.writeValue(C.DRX_TUNE4H_128)
 
-        if (channel != C.CHANNEL_4 and channel != C.CHANNEL_7):
+        if channel != C.CHANNEL_4 and channel != C.CHANNEL_7:
             rfrxctrlh.writeValue(C.RF_RXCTRLH_1235)
         else:
             rfrxctrlh.writeValue(C.RF_RXCTRLH_147)
@@ -792,7 +798,7 @@ class DW1000:
             if dataRate == C.TRX_RATE_110KBPS:
                 lderepc.writeValue((C.LDE_REPC_3AND8 >> 3) & C.MASK_LS_2BYTES)
             else:
-                lderepc.writeValue(C.LDE_REPC_3)
+                lderepc.writeValue(C.LDE_REPC_3AND8)
         elif preacode == C.PREAMBLE_CODE_16MHZ_4:
             if dataRate == C.TRX_RATE_110KBPS:
                 lderepc.writeValue((C.LDE_REPC_4 >> 3) & C.MASK_LS_2BYTES)
@@ -915,15 +921,10 @@ class DW1000:
         """
         This function clears the system event status register at the bits related to the reception of a message.
         """
-        self.sysstatus.setBit(C.RXDFR_BIT, True)
-        self.sysstatus.setBit(C.RXDFR_BIT, True)
-        self.sysstatus.setBit(C.LDEDONE_BIT, True)
-        self.sysstatus.setBit(C.LDEERR_BIT, True)
-        self.sysstatus.setBit(C.RXPHE_BIT, True)
-        self.sysstatus.setBit(C.RXFCE_BIT, True)
-        self.sysstatus.setBit(C.RXFCG_BIT, True)
-        self.sysstatus.setBit(C.RXRFSL_BIT, True)
-
+        self.sysstatus.setBits((C.RXDFR_BIT, C.LDEDONE_BIT
+                                , C.LDEERR_BIT, C.RXPHE_BIT
+                                , C.RXFCE_BIT, C.RXFCG_BIT
+                                , C.RXRFSL_BIT), True)
         self.writeRegister(self.sysstatus)
 
 
@@ -1107,7 +1108,7 @@ class DW1000:
         This function prepares the chip for a new transmission. It clears the system control register and also clears the TX latched bits in the SYS_STATUS register.
         """
         self.idle()
-        self.sysctrl.setAll(0x00)
+        self.sysctrl.clear()
         self.clearTransmitStatus()
         self.deviceMode = C.TX_MODE
 
@@ -1159,11 +1160,11 @@ class DW1000:
         futureTimeTS = 0
         for i in range(0, 5):
             futureTimeTS |= sysTimeReg[i] << (i * 8)
-        futureTimeTS += (int)(delay * unit * C.TIME_RES_INV)
+        futureTimeTS += int(delay * unit * C.TIME_RES_INV)
 
         delayReg.clear()
         for i in range(0, 5):
-            delayReg[i] = (int)(futureTimeTS >> (i * 8)) & C.MASK_LS_BYTE
+            delayReg[i] = int(futureTimeTS >> (i * 8)) & C.MASK_LS_BYTE
 
         delayReg[0] = 0
         delayReg[1] &= C.SET_DELAY_MASK
@@ -1312,7 +1313,10 @@ class DW1000:
                 data: the byte array which contains the data to be written in the register
                 dataLength: The size of the data which will be sent.
         """
+        print("Data to TX: " + str(data))
         self.writeBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
+        self.readBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
+        print("Data from TX: " + str(data))
         dataLength += 2  # _frameCheck true, two bytes CRC
         self.txfctrl[0] = (dataLength & C.MASK_LS_BYTE)
         self.txfctrl[1] &= C.SET_DATA_MASK1
