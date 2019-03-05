@@ -42,3 +42,9 @@ class DW1000Register:
 
     def __setitem__(self, key, value):
         self.data[key] = value
+
+    def __str__(self):
+        return str(self.data)
+
+    def __repr__(self):
+        return repr(self.data)
