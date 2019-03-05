@@ -147,6 +147,7 @@ def loop():
     if receivedAck:
         receivedAck = False
         data = dw1000.getData(LEN_DATA)
+        print(str(data))
         msgId = data[0]
         if msgId != expectedMsgId:
             protocolFailed = True
@@ -195,4 +196,4 @@ try:
         loop()
 
 except KeyboardInterrupt:
-    dw1000.close()
+    dw1000.stop()

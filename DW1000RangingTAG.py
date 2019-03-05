@@ -84,6 +84,9 @@ def resetInactive():
 
 
 def transmitPoll():
+    global data, lastPoll, dw1000
+    while (millis() - lastPoll < POLL_RANGE_FREQ):
+        pass
     """
     This function sends the polling message which is the first transaction to enable ranging functionalities. 
     It checks if an anchor is operational.
@@ -154,9 +157,9 @@ def loop():
 
 try:
     PIN_IRQ = 16
-    PIN_SS = 8
+    PIN_CS = 8
     PIN_RST = 12
-    dw1000 = DW1000(PIN_SS, PIN_RST, PIN_IRQ)
+    dw1000 = DW1000(PIN_CS, PIN_RST, PIN_IRQ)
     dw1000.begin()
     print("DW1000 initialized")
     print("############### TAG ##############")	
@@ -173,4 +176,4 @@ try:
         loop()
 
 except KeyboardInterrupt:
-    dw1000.close()
+    dw1000.stop()
