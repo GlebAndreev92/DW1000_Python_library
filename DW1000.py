@@ -12,7 +12,9 @@ import DW1000Constants as C
 import ctypes
 import logging
 from DW1000Register import DW1000Register
+import MAC
 from Helper import convertStringToByte, writeValueToBytes
+from random import randrange
 
 GPIO.setwarnings(False)
 
@@ -40,12 +42,19 @@ class DW1000:
         self.otpctrl = DW1000Register(C.OTP_IF, C.OTP_CTRL_SUB, 2)
         self.panadr = DW1000Register(C.PANADR, C.NO_SUB, 4)
         self.eui = DW1000Register(C.EUI, C.NO_SUB, 8)
+        self.ackrespt = DW1000Register(C.ACK_RESP_T, C.NO_SUB, 4)
+
+        self.seqNum = randrange(0, 256) # Sequence number for transmitted frames | hashmap and per connection number?
 
         self.deviceMode = C.IDLE_MODE
         self.operationMode = [None] * 6 # [dataRate, pulseFrequency, pacSize, preambleLength, channel, preacode]
         self.permanentReceive = False
 
+        self.extendedAddress = None
+        self.shortAddress = None
+
         self.callbacks = {}
+
 
     def begin(self):
         GPIO.setmode(GPIO.BCM)
@@ -75,7 +84,7 @@ class DW1000:
 
         # Default system configuration
         self.syscfg.clear()
-        self.syscfg.setBits((C.DIS_DRXB_BIT, C.HIRQ_POL_BIT), True)
+        self.syscfg.setBits((C.HIRQ_POL_BIT, C.DIS_DRXB_BIT), True)
         self.writeRegister(self.syscfg)
 
         # Default DW1000 GPIO configuration, enable LEDS
@@ -126,6 +135,7 @@ class DW1000:
         self.writeRegister(self.pmscctrl0)
         self.idle()
 
+
     def enableLeds(self):
         self.gpiomode.clear()
         self.gpiomode.setBits((6, 8, 10, 12), True)
@@ -137,6 +147,7 @@ class DW1000:
         self.pmscledc[0] = C.PMSC_LEDC_BLINK_TIM_BYTE
         self.pmscledc.setBit(C.PMSC_LEDC_BLINKEN_BIT, True)
         self.writeRegister(self.pmscledc)
+
 
     def registerCallback(self, string, callback):
         """
@@ -214,7 +225,8 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        self.spi.xfer2(header[0:headerLen] + data[0:dataSize])
+        self.spi.xfer2(header[0:headerLen])
+        self.spi.xfer2(data[0:dataSize])
 
         GPIO.output(self.cs, GPIO.HIGH)
 
@@ -239,6 +251,43 @@ class DW1000:
         self.writeRegister(self.pmscctrl0)
 
 
+    def printStatusRegister(self):
+        print("IRQS:\t\t" + str(self.sysstatus.getBit(C.IRQS_BIT)))
+        print("CPLOCK:\t\t" + str(self.sysstatus.getBit(C.CPLOCK_BIT)))
+        print("ESYNCR:\t\t" + str(self.sysstatus.getBit(C.ESYNCR_BIT)))
+        print("AAT:\t\t" + str(self.sysstatus.getBit(C.AAT_BIT)))
+        print("TXFRB:\t\t" + str(self.sysstatus.getBit(C.TXFRB_BIT)))
+        print("TXPRS:\t\t" + str(self.sysstatus.getBit(C.TXPRS_BIT)))
+        print("TXPHS:\t\t" + str(self.sysstatus.getBit(C.TXPHS_BIT)))
+        print("TXFRS:\t\t" + str(self.sysstatus.getBit(C.TXFRS_BIT)))
+        print("RXPRD:\t\t" + str(self.sysstatus.getBit(C.RXPRD_BIT)))
+        print("RXSFDD:\t\t" + str(self.sysstatus.getBit(C.RXSFDD_BIT)))
+        print("LDEDONE:\t" + str(self.sysstatus.getBit(C.LDEDONE_BIT)))
+        print("RXPHD:\t\t" + str(self.sysstatus.getBit(C.RXPHD_BIT)))
+        print("RXPHE:\t\t" + str(self.sysstatus.getBit(C.RXPHE_BIT)))
+        print("RXDFR:\t\t" + str(self.sysstatus.getBit(C.RXDFR_BIT)))
+        print("RXFCG:\t\t" + str(self.sysstatus.getBit(C.RXFCG_BIT)))
+        print("RXFCE:\t\t" + str(self.sysstatus.getBit(C.RXFCE_BIT)))
+        print("RXRFSL:\t\t" + str(self.sysstatus.getBit(C.RXRFSL_BIT)))
+        print("RXRFTO:\t\t" + str(self.sysstatus.getBit(C.RXRFTO_BIT)))
+        print("LDEERR:\t\t" + str(self.sysstatus.getBit(C.LDEERR_BIT)))
+        print("RXOVRR:\t\t" + str(self.sysstatus.getBit(C.RXOVRR_BIT)))
+        print("RXPTO:\t\t" + str(self.sysstatus.getBit(C.RXPTO_BIT)))
+        print("GPIOIRQ:\t" + str(self.sysstatus.getBit(C.GPIOIRQ_BIT)))
+        print("SLP2INIT:\t" + str(self.sysstatus.getBit(C.SLP2INIT_BIT)))
+        print("RFPLL_LL:\t" + str(self.sysstatus.getBit(C.RFPLL_LL_BIT)))
+        print("CLKPLL_LL:\t" + str(self.sysstatus.getBit(C.CLKPLL_LL_BIT)))
+        print("RXSFDTO:\t" + str(self.sysstatus.getBit(C.RXSFDTO_BIT)))
+        print("HPDWARN:\t" + str(self.sysstatus.getBit(C.HPDWARN_BIT)))
+        print("TXBERR:\t\t" + str(self.sysstatus.getBit(C.TXBERR_BIT)))
+        print("AFFREJ:\t\t" + str(self.sysstatus.getBit(C.AFFREJ_BIT)))
+        print("HSRBP:\t\t" + str(self.sysstatus.getBit(C.HSRBP_BIT)))
+        print("ICRBP:\t\t" + str(self.sysstatus.getBit(C.ICRBP_BIT)))
+        print("RXRSCS:\t\t" + str(self.sysstatus.getBit(C.RXRSCS_BIT)))
+        print("RXPREJ:\t\t" + str(self.sysstatus.getBit(C.RXPREJ_BIT)))
+        print("TXPUTE:\t\t" + str(self.sysstatus.getBit(C.TXPUTE_BIT)))
+
+
     def idle(self):
         """
         This function puts the chip into idle mode.
@@ -255,6 +304,7 @@ class DW1000:
         """
         logging.debug("Interrupt received")
         self.readRegister(self.sysstatus)
+        self.printStatusRegister()
         msgReceived = self.sysstatus.getBit(C.RXFCG_BIT)
         receiveTimeStampAvailable = self.sysstatus.getBit(C.LDEDONE_BIT)
         transmitDone = self.sysstatus.getBit(C.TXFRS_BIT)
@@ -262,7 +312,7 @@ class DW1000:
             self.callbacks["handleSent"]()
             self.clearTransmitStatus()
         if receiveTimeStampAvailable:
-            self.sysstatus.setBit(C.LDEDONE_BIT, True)
+            self.sysstatus.setBit(C.LDEDONE_BIT, True) # clears LDEDONE_BIT
             self.writeRegister(self.sysstatus)
         if self.isReceiveFailed():
             self.clearReceiveStatus()
@@ -322,16 +372,18 @@ class DW1000:
         elif self.deviceMode == C.IDLE_MODE:
             self.syscfg[2] &= C.ENABLE_MODE_MASK2
 
-            self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT), True)# C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
-            self.syscfg.setBit(C.FFEN_BIT, False)
-            # Enable interrupts on transmit, 
+            #self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT), True)# C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
+            #self.syscfg.setBit(C.FFEN_BIT, False)
+            self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT, C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
+            
+            
+            # Enable interrupts
+            self.sysmask.clear()
             self.sysmask.setBits((C.MTXFRS_BIT
                                 , C.MRXDFR_BIT, C.MRXFCG_BIT
                                 , C.MLDEERR_BIT, C.MRXFCE_BIT, C.MRXPHE_BIT, C.MRXRFSL_BIT
                                 , C.MAAT_BIT)
                                 , True)
-
-            self.sysmask.setBit(C.MLDEDONE_BIT, False)
 
             self.clearAllStatus()
 
@@ -397,6 +449,15 @@ class DW1000:
             self.setPreambleCode(C.PREAMBLE_CODE_16MHZ_4)
         else:
             self.setPreambleCode(C.PREAMBLE_CODE_64MHZ_10)
+
+        # setAckTim
+        self.setW4RTim(0)
+        if rate == C.TRX_RATE_110KBPS:
+            self.setAckTim(0)
+        elif rate == C.TRX_RATE_850KBPS:
+            self.setAckTim(2)
+        elif rate == C.TRX_RATE_6800KBPS:
+            self.setAckTim(3)
 
 
     def newConfiguration(self):
@@ -498,6 +559,20 @@ class DW1000:
         self.chanctrl[3] = ((((preacode >> 2) & C.PREACODE_MASK3) |
                         (preacode << 3)) & C.MASK_LS_BYTE)
         self.operationMode[C.PREAMBLE_CODE_BIT] = preacode
+
+
+    def setAckTim(self, value):
+        self.readRegister(self.ackrespt)
+        self.ackrespt[3] = value
+        self.writeRegister(self.ackrespt)
+
+    
+    def setW4RTim(self, value):
+        self.readRegister(self.ackrespt)
+        self.ackrespt[2] = 0x0F & (value >> 16)
+        self.ackrespt[1] = 0xFF & (value >> 8)
+        self.ackrespt[0] = 0xFF & (value)
+        self.writeRegister(self.ackrespt)
 
 
     def tune(self):
@@ -871,7 +946,6 @@ class DW1000:
         This function configures the chip to start the reception of a message sent by another DW1000 chip. 
         It turns on its receiver by setting RXENAB in the system control register.
         """
-        self.sysctrl.setBit(C.SFCST_BIT, False)
         self.sysctrl.setBit(C.RXENAB_BIT, True)
         self.writeRegister(self.sysctrl)
 
@@ -1024,6 +1098,19 @@ class DW1000:
         return timestamp
 
 
+    def getReceiveFrameLength(self):
+        """
+        This function reads the length of the received frame. Used to read only the important parts of a transmission.
+
+        Returns:
+                Length of the frame in RX_BUFFER
+        """
+        self.rxfinfo = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
+        self.readRegister(self.rxfinfo)
+
+        return ((self.rxfinfo[1] & 0x3) << 8) | self.rxfinfo[0] # [RXFLE | RXFLEN]
+
+
     def correctTimestamp(self, timestamp):
         """
         This function corrects the timestamp read from the RX buffer.
@@ -1098,6 +1185,11 @@ class DW1000:
         return timestamp
 
 
+    def getMessage(self):
+        messageLen = self.getReceiveFrameLength()
+        return bytearray(self.getData(messageLen))
+
+
     """
     Message transmission functions.
     """
@@ -1118,15 +1210,10 @@ class DW1000:
         This function configures the chip to start the transmission of the message previously set in the TX register. It sets TXSTRT bit in the system control register to begin transmission.
         """
         self.writeRegister(self.txfctrl)
-        self.sysctrl.setBit(C.SFCST_BIT, False)
+        self.sysctrl.setBit(C.WAIT4RESP_BIT, True)
         self.sysctrl.setBit(C.TXSTRT_BIT, True)
+        self.deviceMode = C.RX_MODE
         self.writeRegister(self.sysctrl)
-        if self.permanentReceive:
-            self.sysctrl.clear()
-            self.deviceMode = C.RX_MODE
-            self.startReceive()
-        else:
-            self.deviceMode = C.IDLE_MODE
 
 
     def clearTransmitStatus(self):
@@ -1238,7 +1325,7 @@ class DW1000:
         """
         This function converts the negative values of the timestamp due to the overflow into a correct one.
 
-        Args :
+        Args:
                 timestamp : the timestamp's value you want to correct.
         
         Returns:
@@ -1247,6 +1334,44 @@ class DW1000:
         if timestamp < 0:
             timestamp += C.TIME_OVERFLOW
         return timestamp
+
+
+    def sendMessage(self, dstAddr, dstPAN, payload):
+        """
+        This function sends a message to the specified address and network. Uses 802.15.4a headers in packets.
+
+        Args:
+                dstAddr: Short ID of the destination
+                dstPAN: Network identifier of the destination
+                payload (bytes): Data to be send
+        """
+        srcAddr = self.panadr[0:2]
+
+        header = MAC.MACHeader()
+        header.frameControl.frameType = MAC.FT_DATA
+        header.frameControl.secEnable = 0
+        header.frameControl.framePending = 0 # TODO: Split larger transmission
+        header.frameControl.ackRequest = 1
+        header.frameControl.panCompression = 1 # Only send destination PAN address
+        header.frameControl.destAddrMode = MAC.AD_SAD # Short address
+        header.frameControl.frameVersion = MAC.IEEE802_15_4_2003
+        header.frameControl.srcAddrMode = MAC.AD_SAD # Short address
+
+        header.seqNumber = self.seqNum
+        header.destPAN = dstPAN
+        header.destAddr = dstAddr
+        header.srcAddr = srcAddr
+        # CRC is auto calculated by DW1000 (SFCST_BIT = False)
+
+        headerEnc = header.encode()
+
+        message = bytearray(headerEnc + payload)
+
+        self.newTransmit()
+        self.setData(message, len(message)) # The TX frame length will be set to len(message) + 2 on the chip to include CRC
+        self.startTransmit()
+
+        self.seqNum = (self.seqNum + 1) % 256
 
             
     """

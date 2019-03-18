@@ -1,13 +1,20 @@
 from construct import Struct, BitStruct, BitsInteger, Bit, Padding, Embedded, Byte, Probe, If, IfThenElse, Tell
 
+# Frame Control Frame Type
 FT_BEACON = 0b000
 FT_DATA = 0b001
 FT_ACK = 0b010
 FT_MAC = 0b011
+FT_INV = 0b111 # invalid
 
+# Frame Control Destination Addressing Mode
 AD_NOT = 0b00  # No PAN and address
 AD_SAD = 0b10  # 2 octet address
 AD_EAD = 0b11  # 8 octet address
+
+# Frame Control Frame Version
+IEEE802_15_4_2003 = 0b00
+IEEE802_15_4 = 0b01
 
 macShortAddrStruct = Struct(
     'shortAddr'/Byte[2]
@@ -18,15 +25,16 @@ macExtAddrStruct = Struct(
 )
 
 macFrameControlStruct = BitStruct(
-    'frameType'/BitsInteger(3),
-    'secEnable'/Bit,
-    'framePending'/Bit,
-    'ackRequest'/Bit,
+    Padding(1),
     'panCompression'/Bit,
-    Padding(3),
-    'destAddrMode'/BitsInteger(2),
+    'ackRequest'/Bit,
+    'framePending'/Bit,
+    'secEnable'/Bit,
+    'frameType'/BitsInteger(3),
+    'srcAddrMode'/BitsInteger(2),
     'frameVersion'/BitsInteger(2),
-    'srcAddrMode'/BitsInteger(2)
+    'destAddrMode'/BitsInteger(2),
+    Padding(2)
 )
 
 macHeaderStruct = Struct(
@@ -138,3 +146,23 @@ class MACHeader():
             setattr(macHeader, key, val)
 
         return macHeader
+
+    def __str__(self):
+        ret = "FrameControl.frametype: {:#05b}\n".format(self.frameControl.frameType)
+        ret += "FrameControl.secEnable: {:#03b}\n".format(self.frameControl.secEnable)
+        ret += "FrameControl.framePending: {:#03b}\n".format(self.frameControl.framePending)
+        ret += "FrameControl.ackRequest: {:#03b}\n".format(self.frameControl.ackRequest)
+        ret += "FrameControl.panCompression: {:#03b}\n".format(self.frameControl.panCompression)
+        ret += "FrameControl.destAddrMode: {:#04b}\n".format(self.frameControl.destAddrMode)
+        ret += "FrameControl.frameVersion: {:#04b}\n".format(self.frameControl.frameVersion)
+        ret += "FrameControl.srcAddrMode: {:#04b}\n".format(self.frameControl.srcAddrMode)
+        ret += "==\n"
+        ret += "Sequence Number: {}\n".format(self.seqNumber)
+        ret += "destPAN: {}\n".format(bytes(self.destPAN))
+        ret += "destAddr: {}\n".format(bytes(self.destAddr))
+        ret += "srcPAN: {}\n".format(bytes(self.srcPAN))
+        ret += "srcAddr: {}\n".format(bytes(self.srcAddr))
+        ret += "auxSecHdr: {}\n".format(bytes(self.auxSecHdr))
+        ret += "dataOffset: {}".format(self.dataOffset)
+        
+        return ret
