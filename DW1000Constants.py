@@ -56,6 +56,8 @@ TRX_RATE_6800KBPS = 0x02
 """ Only used for human readable printing """
 DATA_RATE_0 = 0
 DATA_RATE_110 = 110
+DATA_RATE_850 = 850
+DATA_RATE_6800 = 6800
 
 # Transmission pulse frequency
 TX_PULSE_FREQ_16MHZ = 0x01

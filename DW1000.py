@@ -233,7 +233,7 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        self.spi.xfer2(header[0:headerLen] + bytes(data[0:dataSize]))
+        self.spi.xfer2(header[0:headerLen] + data[0:dataSize])
 
         GPIO.output(self.cs, GPIO.HIGH)
 
@@ -461,11 +461,11 @@ class DW1000:
             self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), True)
 
         if rate == C.TRX_RATE_850KBPS:
-            sfdLength = [C.SFD_LENGTH_850KBPS]
+            sfdLength = bytes([C.SFD_LENGTH_850KBPS])
         elif rate == C.TRX_RATE_6800KBPS:
-            sfdLength = [C.SFD_LENGTH_6800KBPS]
+            sfdLength = bytes([C.SFD_LENGTH_6800KBPS])
         else:
-            sfdLength = [C.SFD_LENGTH_OTHER]
+            sfdLength = bytes([C.SFD_LENGTH_OTHER])
 
         self.writeBytes(C.USR_SFD, C.SFD_LENGTH_SUB, sfdLength, 1)
         self.operationMode[C.DATA_RATE_BIT] = rate
@@ -1408,13 +1408,16 @@ class DW1000:
 
         if self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_110KBPS:
             dr = C.DATA_RATE_110
+        elif self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_850KBPS:
+            dr = C.DATA_RATE_850
+        elif self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_6800KBPS:
+            dr = C.DATA_RATE_6800
         else:
             dr = C.DATA_RATE_0
 
         ch = self.operationMode[C.CHANNEL_BIT]
         pcode = self.operationMode[C.PREAMBLE_CODE_BIT]
-        print("Device mode: Data rate %d kb/s, PRF : %d MHz, Preamble: %d symbols (code %d), Channel : %d" %
-            (dr, prf, plen, pcode, ch))
+        print("Device mode: Data rate {} kb/s, PRF : {} MHz, Preamble: {} symbols (code {}), Channel : {}".format(dr, prf, plen, pcode, ch))
 
 
     def readBytesOTP(self, address, data):
@@ -1429,8 +1432,8 @@ class DW1000:
         addressBytes[0] = address & C.MASK_LS_BYTE
         addressBytes[1] = (address >> 8) & C.MASK_LS_BYTE
         self.writeBytes(C.OTP_IF, C.OTP_ADDR_SUB, addressBytes, 2)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, [C.OTP_STEP2], 1)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, [C.OTP_STEP3], 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP2]), 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP3]), 1)
         self.readBytes(C.OTP_IF, C.OTP_RDAT_SUB, data, 4)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, [C.OTP_STEP5], 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP5]), 1)
         return data
