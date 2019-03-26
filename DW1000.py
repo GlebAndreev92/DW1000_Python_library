@@ -1209,6 +1209,18 @@ class DW1000:
         return futureTimeTS
 
 
+    def setFrameWaitTimeout(self, waittime):
+        """
+        This function sets the Receiver Frame Wait Timeout Period. Use in conjunction with SYSCFG|RXWTOE (Receiver Wait Timeout Enable) and SYSSTATUS|RXRFTO.
+        
+        Args:
+            waittime: The waittime in microseconds
+        """
+        rxfwto = DW1000Register(C.RX_FWTO, C.NO_SUB, 2)
+        rxfwto.writeValue(waittime)
+        self.writeRegister(rxfwto)
+
+
     def clearAllStatus(self):
         """
         This function clears all the status register by writing a 1 to every bits in it. 
