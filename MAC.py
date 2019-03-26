@@ -156,7 +156,6 @@ class MACHeader():
         ret += "FrameControl.destAddrMode: {:#04b}\n".format(self.frameControl.destAddrMode)
         ret += "FrameControl.frameVersion: {:#04b}\n".format(self.frameControl.frameVersion)
         ret += "FrameControl.srcAddrMode: {:#04b}\n".format(self.frameControl.srcAddrMode)
-        ret += "==\n"
         ret += "Sequence Number: {}\n".format(self.seqNumber)
         ret += "destPAN: {}\n".format(bytes(self.destPAN))
         ret += "destAddr: {}\n".format(bytes(self.destAddr))
@@ -166,3 +165,17 @@ class MACHeader():
         ret += "dataOffset: {}".format(self.dataOffset)
         
         return ret
+
+def printHeader(message):
+    """
+    This is a callback called from the module's interrupt handler when a reception was successful. 
+    It sets the received receivedAck as True so the loop can continue.
+    """
+    print("Received frame:\n{}\n".format(str(message)))
+    header = MACHeader.decode(message)
+    print("Decoded Header:\n{}\n".format(str(header)))
+    if header.frameControl.frameType == FT_DATA:
+        payload = message[header.dataOffset:-2]
+        print("Payload:\n{}\n".format(bytes(payload)))
+    elif header.frameControl.frameType == FT_ACK:
+        print("Received Ack Frame for Sequence {}".format(header.seqNumber))

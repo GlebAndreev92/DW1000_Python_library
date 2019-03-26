@@ -53,7 +53,7 @@ class DW1000:
         self.extendedAddress = None
         self.shortAddress = None
 
-        self.callbacks = {}
+        self.interruptCallback = None
 
 
     def begin(self):
@@ -149,21 +149,6 @@ class DW1000:
         self.writeRegister(self.pmscledc)
 
 
-    def registerCallback(self, string, callback):
-        """
-        This function saves the callback sent by the script who imports this module for later use. It stores it in a dictionary with the
-        specified key.
-
-        Args:
-                string: This is the key used to store the callback in the dictionary.
-                callback: This is the saved callback.
-        """
-        try:
-            self.callbacks[string] = callback
-        except KeyError as e:
-            logging.error(str(e))
-
-
     def readRegister(self, reg):
         self.readBytes(reg.address, reg.subaddress, reg.data, reg.size)
 
@@ -172,8 +157,31 @@ class DW1000:
         self.writeBytes(reg.address, reg.subaddress, reg.data, reg.size)
 
 
+    def toggleHSRBP(self):
+        # Save interrupt mask and change HRBPT bits
+        oldmask = self.sysmask.data.copy()
+        self.sysmask.setBits((C.MRXFCE_BIT, C.MRXFCG_BIT, C.MRXDFR_BIT, C.MLDEDONE_BIT), False)
+        self.writeRegister(self.sysmask)
+
+        # Toggle HSRBP
+        self.sysctrl.setBit(C.HRBPT_BIT, True)
+        self.writeRegister(self.sysctrl)
+
+        # Restore interrupt mask
+        self.sysmask.data = oldmask
+        self.writeRegister(self.sysmask)
+
+
+    def resetHSRBP(self):
+        self.readRegister(self.sysstatus)
+        hsrbp = self.sysstatus.getBit(C.HSRBP_BIT)
+        icrbp = self.sysstatus.getBit(C.ICRBP_BIT)
+        if hsrbp == icrbp:
+            self.toggleHSRBP()
+
+
     def readBytes(self, cmd, offset, data, n):
-        header = [None] * 3
+        header = bytearray(3)
         headerLen = 1
 
         if offset == C.NO_SUB:
@@ -190,7 +198,7 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        _data = self.spi.xfer2(header[0:headerLen] + [C.JUNK] * n)
+        _data = self.spi.xfer2(header[0:headerLen] + bytearray(n))
 
         GPIO.output(self.cs, GPIO.HIGH)
 
@@ -208,7 +216,7 @@ class DW1000:
                 data: The array containing the data you want written.
                 dataSize: The number of bytes you want to write into the register.
         """
-        header = [None] * 3
+        header = bytearray(3)
         headerLen = 1
 
         if offset == C.NO_SUB:
@@ -225,8 +233,7 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        self.spi.xfer2(header[0:headerLen])
-        self.spi.xfer2(data[0:dataSize])
+        self.spi.xfer2(header[0:headerLen] + bytes(data[0:dataSize]))
 
         GPIO.output(self.cs, GPIO.HIGH)
 
@@ -252,6 +259,7 @@ class DW1000:
 
 
     def printStatusRegister(self):
+        print("System status bits:")
         print("IRQS:\t\t" + str(self.sysstatus.getBit(C.IRQS_BIT)))
         print("CPLOCK:\t\t" + str(self.sysstatus.getBit(C.CPLOCK_BIT)))
         print("ESYNCR:\t\t" + str(self.sysstatus.getBit(C.ESYNCR_BIT)))
@@ -303,37 +311,8 @@ class DW1000:
         Callback invoked on the rising edge of the interrupt pin. Handle the configured interruptions.
         """
         logging.debug("Interrupt received")
-        self.readRegister(self.sysstatus)
-        self.printStatusRegister()
-        msgReceived = self.sysstatus.getBit(C.RXFCG_BIT)
-        receiveTimeStampAvailable = self.sysstatus.getBit(C.LDEDONE_BIT)
-        transmitDone = self.sysstatus.getBit(C.TXFRS_BIT)
-        if transmitDone:
-            self.callbacks["handleSent"]()
-            self.clearTransmitStatus()
-        if receiveTimeStampAvailable:
-            self.sysstatus.setBit(C.LDEDONE_BIT, True) # clears LDEDONE_BIT
-            self.writeRegister(self.sysstatus)
-        if self.isReceiveFailed():
-            self.clearReceiveStatus()
-            if self.permanentReceive:
-                self.newReceive()
-                self.startReceive()
-        elif self.isReceiveTimeout():
-            self.clearReceiveStatus()
-            if self.permanentReceive:
-                self.newReceive()
-                self.startReceive()
-        elif msgReceived:
-            self.callbacks["handleReceived"]()
-            self.clearReceiveStatus()                
-            if self.permanentReceive:
-                # no need to start a new receive since we enabled the permanent receive mode in the system configuration register. it created an interference causing problem
-                # with the reception
-                # newReceive()
-                self.startReceive()
-
-        self.clearAllStatus()
+        if callable(self.interruptCallback):
+            self.interruptCallback()
 
 
     def manageLDE(self):
@@ -361,102 +340,35 @@ class DW1000:
         self.writeRegister(self.pmscctrl0)
 
 
-    def setDefaultConfiguration(self):
-        """
-        This function sets the default mode on the chip initialization : MODE_LONGDATA_RANGE_LOWPOWER and with receive/transmit mask activated when in IDLE mode.
-        """
-        if self.deviceMode == C.TX_MODE:
-            pass
-        elif self.deviceMode == C.RX_MODE:
-            pass
-        elif self.deviceMode == C.IDLE_MODE:
-            self.syscfg[2] &= C.ENABLE_MODE_MASK2
-
-            #self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT), True)# C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
-            #self.syscfg.setBit(C.FFEN_BIT, False)
-            self.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT, C.AUTOACK_BIT, C.FFEN_BIT, C.FFAB_BIT, C.FFAD_BIT, C.FFAA_BIT, C.FFAM_BIT), True)
-            
-            
-            # Enable interrupts
-            self.sysmask.clear()
-            self.sysmask.setBits((C.MTXFRS_BIT
-                                , C.MRXDFR_BIT, C.MRXFCG_BIT
-                                , C.MLDEERR_BIT, C.MRXFCE_BIT, C.MRXPHE_BIT, C.MRXRFSL_BIT
-                                , C.MAAT_BIT)
-                                , True)
-
-            self.clearAllStatus()
-
-            self.enableMode(C.MODE_LONGDATA_RANGE_LOWPOWER)
-
-
     def enableMode(self, mode):
         """
         This function configures the DW1000 chip to perform with a specific mode. It sets up the TRX rate the TX pulse frequency and the preamble length.
         """
         # setDataRate
-        rate = mode[0]
-        rate = rate & C.MASK_LS_2BITS
-        self.txfctrl[1] = self.txfctrl[1] & C.ENABLE_MODE_MASK1
-        self.txfctrl[1] = self.txfctrl[1] | ((rate << 5) & C.MASK_LS_BYTE)
-        if rate == C.TRX_RATE_110KBPS:
-            self.syscfg.setBit(C.RXM110K_BIT, True)
-        else:
-            self.syscfg.setBit(C.RXM110K_BIT, False)
-
-        if rate == C.TRX_RATE_6800KBPS:
-            self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), False)
-        else:
-            self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), True)
-        if rate == C.TRX_RATE_850KBPS:
-            sfdLength = [C.SFD_LENGTH_850KBPS]
-        elif rate == C.TRX_RATE_6800KBPS:
-            sfdLength = [C.SFD_LENGTH_6800KBPS]
-        else:
-            sfdLength = [C.SFD_LENGTH_OTHER]
-        self.writeBytes(C.USR_SFD, C.SFD_LENGTH_SUB, sfdLength, 1)
-        self.operationMode[C.DATA_RATE_BIT] = rate
-
+        self.setDataRate(mode[C.DATA_RATE_BIT])
+        
         # setPulseFreq
-        freq = mode[1]
-        freq = freq & C.MASK_LS_2BITS
-        self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK2
-        self.txfctrl[2] = self.txfctrl[2] | (freq & C.MASK_LS_BYTE)
-        self.chanctrl[2] = self.chanctrl[2] & C.ENABLE_MODE_MASK3
-        self.chanctrl[2] = self.chanctrl[2] | ((freq << 2) & C.MASK_LS_BYTE)
-        self.operationMode[C.PULSE_FREQUENCY_BIT] = freq
+        self.setPulseFreq(mode[C.PULSE_FREQUENCY_BIT])
 
         # setPreambleLength
-        prealen = mode[2]
-        prealen = prealen & C.MASK_NIBBLE
-        self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK4
-        self.txfctrl[2] = self.txfctrl[2] | ((prealen << 2) & C.MASK_LS_BYTE)
-        if prealen == C.TX_PREAMBLE_LEN_64 or prealen == C.TX_PREAMBLE_LEN_128:
-            self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_8
-        elif prealen == C.TX_PREAMBLE_LEN_256 or prealen == C.TX_PREAMBLE_LEN_512:
-            self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_16
-        elif prealen == C.TX_PREAMBLE_LEN_1024:
-            self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_32
-        else:
-            self.operationMode[C.PAC_SIZE_BIT] = C.PAC_SIZE_64
-        self.operationMode[C.PREAMBLE_LENGTH_BIT] = prealen
+        self.setPreambleLength(mode[C.PREAMBLE_LENGTH_BIT])
+
+        # setPACSize
+        self.operationMode[C.PAC_SIZE_BIT] = mode[C.PAC_SIZE_BIT]
 
         # setChannel
-        self.setChannel(C.CHANNEL_5)
+        self.setChannel(mode[C.CHANNEL_BIT])
 
         # setPreambleCode
-        if mode[1] == C.TX_PULSE_FREQ_16MHZ:
-            self.setPreambleCode(C.PREAMBLE_CODE_16MHZ_4)
-        else:
-            self.setPreambleCode(C.PREAMBLE_CODE_64MHZ_10)
+        self.setPreambleCode(mode[C.PREAMBLE_CODE_BIT])
 
         # setAckTim
         self.setW4RTim(0)
-        if rate == C.TRX_RATE_110KBPS:
+        if mode[C.DATA_RATE_BIT] == C.TRX_RATE_110KBPS:
             self.setAckTim(0)
-        elif rate == C.TRX_RATE_850KBPS:
+        elif mode[C.DATA_RATE_BIT] == C.TRX_RATE_850KBPS:
             self.setAckTim(2)
-        elif rate == C.TRX_RATE_6800KBPS:
+        elif mode[C.DATA_RATE_BIT] == C.TRX_RATE_6800KBPS:
             self.setAckTim(3)
 
 
@@ -493,7 +405,7 @@ class DW1000:
         Args:
                 val : The antenna delay value which will be configured into the chip.
         """
-        antennaDelayBytes = [None] * 5
+        antennaDelayBytes = bytearray(5)
         writeValueToBytes(antennaDelayBytes, val, 5)
         self.writeBytes(C.TX_ANTD, C.NO_SUB, antennaDelayBytes, 2)
         self.writeBytes(C.LDE_CTRL, C.LDE_RXANTD_SUB, antennaDelayBytes, 2)
@@ -531,6 +443,48 @@ class DW1000:
         """
         self.panadr[2] = value & C.MASK_LS_BYTE
         self.panadr[3] = (value >> 8) & C.MASK_LS_BYTE
+
+
+    def setDataRate(self, rate):
+        rate = rate & C.MASK_LS_2BITS
+        self.txfctrl[1] = self.txfctrl[1] & C.ENABLE_MODE_MASK1
+        self.txfctrl[1] = self.txfctrl[1] | ((rate << 5) & C.MASK_LS_BYTE)
+
+        if rate == C.TRX_RATE_110KBPS:
+            self.syscfg.setBit(C.RXM110K_BIT, True)
+        else:
+            self.syscfg.setBit(C.RXM110K_BIT, False)
+
+        if rate == C.TRX_RATE_6800KBPS:
+            self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), False)
+        else:
+            self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), True)
+
+        if rate == C.TRX_RATE_850KBPS:
+            sfdLength = [C.SFD_LENGTH_850KBPS]
+        elif rate == C.TRX_RATE_6800KBPS:
+            sfdLength = [C.SFD_LENGTH_6800KBPS]
+        else:
+            sfdLength = [C.SFD_LENGTH_OTHER]
+
+        self.writeBytes(C.USR_SFD, C.SFD_LENGTH_SUB, sfdLength, 1)
+        self.operationMode[C.DATA_RATE_BIT] = rate
+
+    
+    def setPulseFreq(self, freq):
+        freq = freq & C.MASK_LS_2BITS
+        self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK2
+        self.txfctrl[2] = self.txfctrl[2] | (freq & C.MASK_LS_BYTE)
+        self.chanctrl[2] = self.chanctrl[2] & C.ENABLE_MODE_MASK3
+        self.chanctrl[2] = self.chanctrl[2] | ((freq << 2) & C.MASK_LS_BYTE)
+        self.operationMode[C.PULSE_FREQUENCY_BIT] = freq
+
+
+    def setPreambleLength(self, prealen):
+        prealen = prealen & C.MASK_NIBBLE
+        self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK4
+        self.txfctrl[2] = self.txfctrl[2] | ((prealen << 2) & C.MASK_LS_BYTE)
+        self.operationMode[C.PREAMBLE_LENGTH_BIT] = prealen
 
 
     def setChannel(self, channel):
@@ -651,7 +605,7 @@ class DW1000:
         self.writeRegister(fsxtalt)
 
 
-    def generalConfiguration(self, address, mode):
+    def generalConfiguration(self, address, pan, mode):
         """
         This function configures the DW1000 chip with general settings. It also defines the address and the network ID used by the device. It finally prints the
         configured device.
@@ -666,15 +620,17 @@ class DW1000:
 
         # configure mode, network
         self.newConfiguration()
-        self.setDefaultConfiguration()
-        # setDeviceAddress(2)
         self.setDeviceAddress(deviceAddress)
-        # setNetworkId(10)
-        self.setNetworkId(0xDECA)
+        self.setNetworkId(pan)
         self.enableMode(mode)
         self.setAntennaDelay(C.ANTENNA_DELAY)
         self.commitConfiguration()
 
+
+    def printDeviceInfo(self):
+        """
+        This function prints some infos about the DW1000 module
+        """
         devid = DW1000Register(C.DEV_ID, C.NO_SUB, 4)
         self.readRegister(devid)
         self.readRegister(self.eui)
@@ -775,7 +731,7 @@ class DW1000:
             if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
                 drxtune2.writeValue(C.DRX_TUNE2_8_16MHZ)
             elif pulseFrequency == C.TX_PULSE_FREQ_64MHZ:
-                drxtune2(C.DRX_TUNE2_8_64MHZ)
+                drxtune2.writeValue(C.DRX_TUNE2_8_64MHZ)
         elif pacSize == C.PAC_SIZE_16:
             if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
                 drxtune2.writeValue(C.DRX_TUNE2_16_16MHZ)
@@ -938,7 +894,6 @@ class DW1000:
         self.idle()
         self.sysctrl.clear()
         self.clearReceiveStatus()
-        self.deviceMode = C.RX_MODE
 
 
     def startReceive(self):
@@ -948,15 +903,6 @@ class DW1000:
         """
         self.sysctrl.setBit(C.RXENAB_BIT, True)
         self.writeRegister(self.sysctrl)
-
-
-    def receivePermanently(self):
-        """
-        This function configures the dw1000 chip to receive data permanently. 
-        """
-        self.permanentReceive = True
-        self.syscfg.setBit(C.RXAUTR_BIT, True)
-        self.writeRegister(self.syscfg)
 
 
     def isReceiveFailed(self):
@@ -1202,7 +1148,6 @@ class DW1000:
         self.idle()
         self.sysctrl.clear()
         self.clearTransmitStatus()
-        self.deviceMode = C.TX_MODE
 
 
     def startTransmit(self):
@@ -1212,7 +1157,6 @@ class DW1000:
         self.writeRegister(self.txfctrl)
         self.sysctrl.setBit(C.WAIT4RESP_BIT, True)
         self.sysctrl.setBit(C.TXSTRT_BIT, True)
-        self.deviceMode = C.RX_MODE
         self.writeRegister(self.sysctrl)
 
 
@@ -1387,32 +1331,28 @@ class DW1000:
         Returns:
                 The data in the RX buffer as a string.
         """
-        len = 0
-        if self.deviceMode == C.RX_MODE:
-            rxFrameInfoReg = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
-            self.readRegister(rxFrameInfoReg)
-            len = (((rxFrameInfoReg[1] << 8) | rxFrameInfoReg[0]) & C.GET_DATA_MASK)
-            len = len - 2
+        rxFrameInfoReg = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
+        self.readRegister(rxFrameInfoReg)
+        len = (((rxFrameInfoReg[1] << 8) | rxFrameInfoReg[0]) & C.GET_DATA_MASK)
+        len = len - 2
 
-        dataBytes = [""] * len
-        self.readBytes(C.RX_BUFFER, C.NO_SUB, dataBytes, len)
-        data = "".join(chr(i) for i in dataBytes)
-        return data
+        dataBytes = self.getData(len)
+        dataString = "".join(chr(i) for i in dataBytes)
+        return dataString
 
 
-    def getData(self, datalength):
+    def getData(self, dataLength):
         """
         This function reads a number of bytes in the RX buffer register, stores it into an array and return it.
 
         Args:
-                datalength = The number of bytes you want to read from the rx buffer.
+                dataLength = The number of bytes you want to read from the rx buffer.
 
         Returns:
                 The data read in the RX buffer as an array byte.
         """
-        data = [0] * datalength
-        time.sleep(0.000005)
-        self.readBytes(C.RX_BUFFER, C.NO_SUB, data, datalength)
+        data = bytearray(dataLength)
+        self.readBytes(C.RX_BUFFER, C.NO_SUB, data, dataLength)
         return data
 
 
@@ -1424,7 +1364,7 @@ class DW1000:
                 data: The string message the transmitter will send.
         """
         dataLength = len(data) + 1
-        testData = [0] * dataLength
+        testData = bytearray(dataLength)
         for i in range(0, len(data)):
             testData[i] = ord(data[i])
         self.setData(testData, dataLength)
@@ -1485,7 +1425,7 @@ class DW1000:
                 address: The address to read in the OTP register.
                 data: The data that will store the value read. 
         """
-        addressBytes = [None] * 2
+        addressBytes = bytearray(2)
         addressBytes[0] = address & C.MASK_LS_BYTE
         addressBytes[1] = (address >> 8) & C.MASK_LS_BYTE
         self.writeBytes(C.OTP_IF, C.OTP_ADDR_SUB, addressBytes, 2)

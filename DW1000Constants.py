@@ -19,10 +19,6 @@ IDLE_MODE = 0x00
 RX_MODE = 0x01
 TX_MODE = 0x02
 
-# DW1000 Modes of operation
-MODE_LONGDATA_RANGE_LOWPOWER = [0x00, 0x01, 0x0A]
-MODE_LONGDATA_RANGE_ACCURACY = [0x00, 0x02, 0x0A]
-
 # Clocks
 AUTO_CLOCK = 0x00
 XTI_CLOCK = 0x01
@@ -57,13 +53,15 @@ PREAMBLE_CODE_64MHZ_20 = 20
 TRX_RATE_110KBPS = 0x00
 TRX_RATE_850KBPS = 0x01
 TRX_RATE_6800KBPS = 0x02
+""" Only used for human readable printing """
 DATA_RATE_0 = 0
 DATA_RATE_110 = 110
 
 # Transmission pulse frequency
 TX_PULSE_FREQ_16MHZ = 0x01
 TX_PULSE_FREQ_64MHZ = 0x02
-PFREQ_0 = 0
+""" Only used for human readable printing """
+PFREQ_0 = 0 
 PFREQ_16 = 16
 PFREQ_64 = 64
 
@@ -76,6 +74,7 @@ TX_PREAMBLE_LEN_1024 = 0x02
 TX_PREAMBLE_LEN_1536 = 0x06
 TX_PREAMBLE_LEN_2048 = 0x0A
 TX_PREAMBLE_LEN_4096 = 0x03
+""" Only used for human readable printing """
 PLEN_0 = 0
 PLEN_64 = 64
 PLEN_2048 = 2048
@@ -85,6 +84,10 @@ PAC_SIZE_8 = 8
 PAC_SIZE_16 = 16
 PAC_SIZE_32 = 32
 PAC_SIZE_64 = 64
+
+# DW1000 Modes of operation
+# [dataRate, pulseFrequency, pacSize, preambleLength, channel, preacode]
+MODE_STANDARD = [TRX_RATE_6800KBPS, TX_PULSE_FREQ_64MHZ, PAC_SIZE_8, TX_PREAMBLE_LEN_128, CHANNEL_5, PREAMBLE_CODE_64MHZ_10]
 
 # Register file IDs     Description                                 R/W Octets
 DEV_ID = 0x00           # Device Identifier                         RO  4

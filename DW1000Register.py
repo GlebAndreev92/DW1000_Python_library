@@ -6,7 +6,7 @@ class DW1000Register:
         self.address = address
         self.subaddress = subaddress
         self.size = size
-        self.data = [0] * self.size
+        self.data = bytearray(self.size)
 
     def setBit(self, bit, value):
         shift = bit % 8
@@ -17,15 +17,15 @@ class DW1000Register:
         else:
             self.data[byteidx] &= ~(0x1 << shift)
 
+    def setBits(self, bits, value):
+        for bit in bits:
+            self.setBit(bit, value)
+
     def getBit(self, bit):
         shift = bit % 8
         byteidx = int(bit / 8)
 
         return (self.data[byteidx] >> shift) & 0x1
-
-    def setBits(self, bits, value):
-        for bit in bits:
-            self.setBit(bit, value)
 
     def setAll(self, value):
         for i in range(0, self.size):
@@ -36,6 +36,12 @@ class DW1000Register:
 
     def writeValue(self, value, len=None):
         writeValueToBytes(self.data, value, len if len else self.size)
+
+    def load(self):
+        pass
+    
+    def store(self):
+        pass
         
     def __getitem__(self, key):
         return self.data[key]
