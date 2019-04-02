@@ -15,6 +15,7 @@ from DW1000Register import DW1000Register
 import MAC
 from Helper import convertStringToByte, writeValueToBytes
 from random import randrange
+import copy
 
 GPIO.setwarnings(False)
 
@@ -46,7 +47,6 @@ class DW1000:
 
         self.seqNum = randrange(0, 256) # Sequence number for transmitted frames | hashmap and per connection number?
 
-        self.deviceMode = C.IDLE_MODE
         self.operationMode = [None] * 6 # [dataRate, pulseFrequency, pacSize, preambleLength, channel, preacode]
         self.permanentReceive = False
 
@@ -76,7 +76,7 @@ class DW1000:
         # Setup Host GPIO
         GPIO.setup(self.cs, GPIO.OUT, initial=GPIO.HIGH)
         GPIO.setup(self.irq, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # TODO: CHECK
-        GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
+        self.enableInterrupt()
 
         self.enableClock(C.AUTO_CLOCK)
 
@@ -104,8 +104,9 @@ class DW1000:
 
 
     def stop(self):
-        self.spi.close()
         self.hardReset()
+        time.sleep(0.1)
+        self.spi.close()
         GPIO.cleanup()
         logging.info("Stopped DW1000")
 
@@ -172,12 +173,50 @@ class DW1000:
         self.writeRegister(self.sysmask)
 
 
-    def resetHSRBP(self):
+    def syncHSRBP(self):
         self.readRegister(self.sysstatus)
         hsrbp = self.sysstatus.getBit(C.HSRBP_BIT)
         icrbp = self.sysstatus.getBit(C.ICRBP_BIT)
         if hsrbp == icrbp:
             self.toggleHSRBP()
+
+
+    def forceTRxOff(self):
+        self.readRegister(self.sysmask)
+        mask = copy.copy(self.sysmask.data)
+
+        self.disableInterrupt()
+
+        self.sysmask.setAll(0x00)
+        self.writeRegister(self.sysmask)
+
+        self.sysctrl.clear()
+        self.sysctrl.setBit(C.TRXOFF_BIT, True)
+        self.writeRegister(self.sysctrl)
+
+        self.clearStatus(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_ERR + \
+                            C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD)
+
+        self.syncHSRBP()
+
+        self.sysmask.data = mask
+        self.writeRegister(self.sysmask)
+
+        self.enableInterrupt()
+        self.sysctrl.setBit(C.WAIT4RESP_BIT, False)
+
+
+    def disableInterrupt(self):
+        GPIO.remove_event_detect(self.irq)
+
+    
+    def enableInterrupt(self):
+        GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
+
+    
+    def rxreset(self):
+        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_RX]), 1)
+        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_SET]), 1)
 
 
     def readBytes(self, cmd, offset, data, n):
@@ -258,42 +297,46 @@ class DW1000:
         self.writeRegister(self.pmscctrl0)
 
 
-    def printStatusRegister(self):
-        print("System status bits:")
-        print("IRQS:\t\t" + str(self.sysstatus.getBit(C.IRQS_BIT)))
-        print("CPLOCK:\t\t" + str(self.sysstatus.getBit(C.CPLOCK_BIT)))
-        print("ESYNCR:\t\t" + str(self.sysstatus.getBit(C.ESYNCR_BIT)))
-        print("AAT:\t\t" + str(self.sysstatus.getBit(C.AAT_BIT)))
-        print("TXFRB:\t\t" + str(self.sysstatus.getBit(C.TXFRB_BIT)))
-        print("TXPRS:\t\t" + str(self.sysstatus.getBit(C.TXPRS_BIT)))
-        print("TXPHS:\t\t" + str(self.sysstatus.getBit(C.TXPHS_BIT)))
-        print("TXFRS:\t\t" + str(self.sysstatus.getBit(C.TXFRS_BIT)))
-        print("RXPRD:\t\t" + str(self.sysstatus.getBit(C.RXPRD_BIT)))
-        print("RXSFDD:\t\t" + str(self.sysstatus.getBit(C.RXSFDD_BIT)))
-        print("LDEDONE:\t" + str(self.sysstatus.getBit(C.LDEDONE_BIT)))
-        print("RXPHD:\t\t" + str(self.sysstatus.getBit(C.RXPHD_BIT)))
-        print("RXPHE:\t\t" + str(self.sysstatus.getBit(C.RXPHE_BIT)))
-        print("RXDFR:\t\t" + str(self.sysstatus.getBit(C.RXDFR_BIT)))
-        print("RXFCG:\t\t" + str(self.sysstatus.getBit(C.RXFCG_BIT)))
-        print("RXFCE:\t\t" + str(self.sysstatus.getBit(C.RXFCE_BIT)))
-        print("RXRFSL:\t\t" + str(self.sysstatus.getBit(C.RXRFSL_BIT)))
-        print("RXRFTO:\t\t" + str(self.sysstatus.getBit(C.RXRFTO_BIT)))
-        print("LDEERR:\t\t" + str(self.sysstatus.getBit(C.LDEERR_BIT)))
-        print("RXOVRR:\t\t" + str(self.sysstatus.getBit(C.RXOVRR_BIT)))
-        print("RXPTO:\t\t" + str(self.sysstatus.getBit(C.RXPTO_BIT)))
-        print("GPIOIRQ:\t" + str(self.sysstatus.getBit(C.GPIOIRQ_BIT)))
-        print("SLP2INIT:\t" + str(self.sysstatus.getBit(C.SLP2INIT_BIT)))
-        print("RFPLL_LL:\t" + str(self.sysstatus.getBit(C.RFPLL_LL_BIT)))
-        print("CLKPLL_LL:\t" + str(self.sysstatus.getBit(C.CLKPLL_LL_BIT)))
-        print("RXSFDTO:\t" + str(self.sysstatus.getBit(C.RXSFDTO_BIT)))
-        print("HPDWARN:\t" + str(self.sysstatus.getBit(C.HPDWARN_BIT)))
-        print("TXBERR:\t\t" + str(self.sysstatus.getBit(C.TXBERR_BIT)))
-        print("AFFREJ:\t\t" + str(self.sysstatus.getBit(C.AFFREJ_BIT)))
-        print("HSRBP:\t\t" + str(self.sysstatus.getBit(C.HSRBP_BIT)))
-        print("ICRBP:\t\t" + str(self.sysstatus.getBit(C.ICRBP_BIT)))
-        print("RXRSCS:\t\t" + str(self.sysstatus.getBit(C.RXRSCS_BIT)))
-        print("RXPREJ:\t\t" + str(self.sysstatus.getBit(C.RXPREJ_BIT)))
-        print("TXPUTE:\t\t" + str(self.sysstatus.getBit(C.TXPUTE_BIT)))
+    def getStatusRegisterString(self):
+        statusstr = ""
+
+        statusstr += "System status bits:\n"
+        statusstr += "IRQS:\t\t" + str(self.sysstatus.getBit(C.IRQS_BIT)) + "\n"
+        statusstr += "CPLOCK:\t\t" + str(self.sysstatus.getBit(C.CPLOCK_BIT)) + "\n"
+        statusstr += "ESYNCR:\t\t" + str(self.sysstatus.getBit(C.ESYNCR_BIT)) + "\n"
+        statusstr += "AAT:\t\t" + str(self.sysstatus.getBit(C.AAT_BIT)) + "\n"
+        statusstr += "TXFRB:\t\t" + str(self.sysstatus.getBit(C.TXFRB_BIT)) + "\n"
+        statusstr += "TXPRS:\t\t" + str(self.sysstatus.getBit(C.TXPRS_BIT)) + "\n"
+        statusstr += "TXPHS:\t\t" + str(self.sysstatus.getBit(C.TXPHS_BIT)) + "\n"
+        statusstr += "TXFRS:\t\t" + str(self.sysstatus.getBit(C.TXFRS_BIT)) + "\n"
+        statusstr += "RXPRD:\t\t" + str(self.sysstatus.getBit(C.RXPRD_BIT)) + "\n"
+        statusstr += "RXSFDD:\t\t" + str(self.sysstatus.getBit(C.RXSFDD_BIT)) + "\n"
+        statusstr += "LDEDONE:\t" + str(self.sysstatus.getBit(C.LDEDONE_BIT)) + "\n"
+        statusstr += "RXPHD:\t\t" + str(self.sysstatus.getBit(C.RXPHD_BIT)) + "\n"
+        statusstr += "RXPHE:\t\t" + str(self.sysstatus.getBit(C.RXPHE_BIT)) + "\n"
+        statusstr += "RXDFR:\t\t" + str(self.sysstatus.getBit(C.RXDFR_BIT)) + "\n"
+        statusstr += "RXFCG:\t\t" + str(self.sysstatus.getBit(C.RXFCG_BIT)) + "\n"
+        statusstr += "RXFCE:\t\t" + str(self.sysstatus.getBit(C.RXFCE_BIT)) + "\n"
+        statusstr += "RXRFSL:\t\t" + str(self.sysstatus.getBit(C.RXRFSL_BIT)) + "\n"
+        statusstr += "RXRFTO:\t\t" + str(self.sysstatus.getBit(C.RXRFTO_BIT)) + "\n"
+        statusstr += "LDEERR:\t\t" + str(self.sysstatus.getBit(C.LDEERR_BIT)) + "\n"
+        statusstr += "RXOVRR:\t\t" + str(self.sysstatus.getBit(C.RXOVRR_BIT)) + "\n"
+        statusstr += "RXPTO:\t\t" + str(self.sysstatus.getBit(C.RXPTO_BIT)) + "\n"
+        statusstr += "GPIOIRQ:\t" + str(self.sysstatus.getBit(C.GPIOIRQ_BIT)) + "\n"
+        statusstr += "SLP2INIT:\t" + str(self.sysstatus.getBit(C.SLP2INIT_BIT)) + "\n"
+        statusstr += "RFPLL_LL:\t" + str(self.sysstatus.getBit(C.RFPLL_LL_BIT)) + "\n"
+        statusstr += "CLKPLL_LL:\t" + str(self.sysstatus.getBit(C.CLKPLL_LL_BIT)) + "\n"
+        statusstr += "RXSFDTO:\t" + str(self.sysstatus.getBit(C.RXSFDTO_BIT)) + "\n"
+        statusstr += "HPDWARN:\t" + str(self.sysstatus.getBit(C.HPDWARN_BIT)) + "\n"
+        statusstr += "TXBERR:\t\t" + str(self.sysstatus.getBit(C.TXBERR_BIT)) + "\n"
+        statusstr += "AFFREJ:\t\t" + str(self.sysstatus.getBit(C.AFFREJ_BIT)) + "\n"
+        statusstr += "HSRBP:\t\t" + str(self.sysstatus.getBit(C.HSRBP_BIT)) + "\n"
+        statusstr += "ICRBP:\t\t" + str(self.sysstatus.getBit(C.ICRBP_BIT)) + "\n"
+        statusstr += "RXRSCS:\t\t" + str(self.sysstatus.getBit(C.RXRSCS_BIT)) + "\n"
+        statusstr += "RXPREJ:\t\t" + str(self.sysstatus.getBit(C.RXPREJ_BIT)) + "\n"
+        statusstr += "TXPUTE:\t\t" + str(self.sysstatus.getBit(C.TXPUTE_BIT)) + "\n"
+
+        return statusstr
 
 
     def idle(self):
@@ -302,7 +345,6 @@ class DW1000:
         """
         self.sysctrl.clear()
         self.sysctrl.setBit(C.TRXOFF_BIT, True)
-        self.deviceMode = C.IDLE_MODE
         self.writeRegister(self.sysctrl)
 
 
@@ -627,21 +669,28 @@ class DW1000:
         self.commitConfiguration()
 
 
-    def printDeviceInfo(self):
+    def getDeviceInfoString(self):
         """
-        This function prints some infos about the DW1000 module
+        This function returns some infos about the DW1000 module
+
+        Returns:
+            String containing device information
         """
+        devinfostr = ""
+
         devid = DW1000Register(C.DEV_ID, C.NO_SUB, 4)
         self.readRegister(devid)
         self.readRegister(self.eui)
         self.readRegister(self.panadr)
-        print("\nDevice ID %02X - model: %d, version: %d, revision: %d" %
-            ((devid[3] << 8) | devid[2], (devid[1]), (devid[0] >> 4) & C.MASK_NIBBLE, devid[0] & C.MASK_NIBBLE))
-        print("Unique ID: %02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X" % 
-            tuple(reversed([eui for eui in self.eui])))
-        print("Network ID & Device Address: PAN: %02X, Short Address: %02X" %
-            (((self.panadr[3] << 8) | self.panadr[2]), ((self.panadr[1] << 8) | self.panadr[0])))
-        self.getDeviceModeInfo()
+        devinfostr += "\nDevice ID {:02X} - model: {}, version: {}, revision: {}\n".format(
+            (devid[3] << 8) | devid[2], (devid[1]), (devid[0] >> 4) & C.MASK_NIBBLE, devid[0] & C.MASK_NIBBLE)
+        devinfostr += "Unique ID: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n".format( 
+            *(reversed([eui for eui in self.eui])))
+        devinfostr += "Network ID & Device Address: PAN: {:02X}, Short Address: {:02X}\n".format(
+            ((self.panadr[3] << 8) | self.panadr[2]), ((self.panadr[1] << 8) | self.panadr[0]))
+        devinfostr += self.getDeviceModeInfoString()
+
+        return devinfostr
 
 
     """
@@ -736,12 +785,12 @@ class DW1000:
             if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
                 drxtune2.writeValue(C.DRX_TUNE2_16_16MHZ)
             elif pulseFrequency == C.TX_PULSE_FREQ_64MHZ:
-                drxtune2(C.DRX_TUNE2_16_64MHZ)
+                drxtune2.writeValue(C.DRX_TUNE2_16_64MHZ)
         elif pacSize == C.PAC_SIZE_32:
             if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
-                drxtune2(C.DRX_TUNE2_32_16MHZ)
+                drxtune2.writeValue(C.DRX_TUNE2_32_16MHZ)
             elif pulseFrequency == C.TX_PULSE_FREQ_64MHZ:
-                drxtune2(C.DRX_TUNE2_32_64MHZ)
+                drxtune2.writeValue(C.DRX_TUNE2_32_64MHZ)
         elif pacSize == C.PAC_SIZE_64:
             if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
                 drxtune2.writeValue(C.DRX_TUNE2_64_16MHZ)
@@ -941,11 +990,10 @@ class DW1000:
         """
         This function clears the system event status register at the bits related to the reception of a message.
         """
-        self.sysstatus.setBits((C.RXDFR_BIT, C.LDEDONE_BIT
+        self.clearStatus((C.RXDFR_BIT, C.LDEDONE_BIT
                                 , C.LDEERR_BIT, C.RXPHE_BIT
                                 , C.RXFCE_BIT, C.RXFCG_BIT
-                                , C.RXRFSL_BIT), True)
-        self.writeRegister(self.sysstatus)
+                                , C.RXRFSL_BIT))
 
 
     def getFirstPathPower(self):
@@ -1150,12 +1198,12 @@ class DW1000:
         self.clearTransmitStatus()
 
 
-    def startTransmit(self):
+    def startTransmit(self, wait4resp):
         """
         This function configures the chip to start the transmission of the message previously set in the TX register. It sets TXSTRT bit in the system control register to begin transmission.
         """
         self.writeRegister(self.txfctrl)
-        self.sysctrl.setBit(C.WAIT4RESP_BIT, True)
+        self.sysctrl.setBit(C.WAIT4RESP_BIT, wait4resp)
         self.sysctrl.setBit(C.TXSTRT_BIT, True)
         self.writeRegister(self.sysctrl)
 
@@ -1164,26 +1212,27 @@ class DW1000:
         """
         This function clears the event status register at the bits related to the transmission of a message.
         """
-        self.sysstatus.setBits((C.TXFRB_BIT, C.TXPRS_BIT, C.TXPHS_BIT, C.TXFRS_BIT), True)
-
-        self.writeRegister(self.sysstatus)
+        self.clearStatus((C.TXFRB_BIT, C.TXPRS_BIT, C.TXPHS_BIT, C.TXFRS_BIT))
 
 
-    def setDelay(self, delay, unit):
+    def setDelay(self, delay, unit, mode):
         """
         This function configures the chip to activate a delay between transmissions or receptions.
 
         Args:
                 delay: The delay between each transmission/reception
                 unit : The unit you want to put the delay in. Microseconds is the base unit.
+                mode : "rx" | "tx"
 
         Returns:
                 The timestamp's value with the added delay and antennaDelay.
         """
-        if self.deviceMode == C.TX_MODE:
+        if mode.lower() == "tx":
             self.sysctrl.setBit(C.TXDLYS_BIT, True)
-        elif self.deviceMode == C.RX_MODE:
+        elif mode.lower() == "rx":
             self.sysctrl.setBit(C.RXDLYE_BIT, True)
+        else:
+            logging.error("Unknown mode")
 
         delayReg = DW1000Register(C.DX_TIME, C.NO_SUB, 5)
         sysTimeReg = DW1000Register(C.SYS_TIME, C.NO_SUB, 5)
@@ -1219,6 +1268,18 @@ class DW1000:
         rxfwto = DW1000Register(C.RX_FWTO, C.NO_SUB, 2)
         rxfwto.writeValue(waittime)
         self.writeRegister(rxfwto)
+
+
+    def clearStatus(self, bits):
+        """
+        This function clears all specified bits in status register. Local status is invalid afterwards!
+
+        Args:
+            bits (array-like): List of bits to clear
+        """
+        self.sysstatus.clear()
+        self.sysstatus.setBits(bits, True)
+        self.writeRegister(self.sysstatus)
 
 
     def clearAllStatus(self):
@@ -1292,7 +1353,7 @@ class DW1000:
         return timestamp
 
 
-    def sendMessage(self, dstAddr, dstPAN, payload):
+    def sendMessage(self, dstAddr, dstPAN, payload, ackReq=True, wait4resp=True, delay=None):
         """
         This function sends a message to the specified address and network. Uses 802.15.4a headers in packets.
 
@@ -1307,7 +1368,7 @@ class DW1000:
         header.frameControl.frameType = MAC.FT_DATA
         header.frameControl.secEnable = 0
         header.frameControl.framePending = 0 # TODO: Split larger transmission
-        header.frameControl.ackRequest = 1
+        header.frameControl.ackRequest = ackReq
         header.frameControl.panCompression = 1 # Only send destination PAN address
         header.frameControl.destAddrMode = MAC.AD_SAD # Short address
         header.frameControl.frameVersion = MAC.IEEE802_15_4_2003
@@ -1325,7 +1386,9 @@ class DW1000:
 
         self.newTransmit()
         self.setData(message, len(message)) # The TX frame length will be set to len(message) + 2 on the chip to include CRC
-        self.startTransmit()
+        if delay:
+            self.setDelay(delay, C.MICROSECONDS, "tx")
+        self.startTransmit(wait4resp)
 
         self.seqNum = (self.seqNum + 1) % 256
 
@@ -1390,46 +1453,42 @@ class DW1000:
                 data: the byte array which contains the data to be written in the register
                 dataLength: The size of the data which will be sent.
         """
-        print("Data to TX: " + str(data))
+        logging.debug("Data to TX: " + str(data))
         self.writeBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
         self.readBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
-        print("Data from TX: " + str(data))
+        logging.debug("Data from TX: " + str(data))
         dataLength += 2  # _frameCheck true, two bytes CRC
         self.txfctrl[0] = (dataLength & C.MASK_LS_BYTE)
         self.txfctrl[1] &= C.SET_DATA_MASK1
         self.txfctrl[1] |= ((dataLength >> 8) & C.SET_DATA_MASK2)
 
 
-    def getDeviceModeInfo(self):
+    def getDeviceModeInfoString(self):
         """
-        This function prints the various device mode operating informations such as datarate, pulse frequency, the channel used, etc
+        This function returns the various device mode operating informations such as datarate, pulse frequency, the channel used, etc
+
+        Returns:
+            String containing device mode information
         """
-        if self.operationMode[C.PULSE_FREQUENCY_BIT] == C.TX_PULSE_FREQ_16MHZ:
-            prf = C.PFREQ_16
-        elif self.operationMode[C.PULSE_FREQUENCY_BIT] == C.TX_PULSE_FREQ_64MHZ:
-            prf = C.PFREQ_64
-        else:
-            prf = C.PFREQ_0
+        try:
+            prf = C.PFREQ_DICT[self.operationMode[C.PULSE_FREQUENCY_BIT]]
+        except KeyError:
+            prf = 0
 
-        if self.operationMode[C.PREAMBLE_LENGTH_BIT] == C.TX_PREAMBLE_LEN_64:
-            plen = C.PLEN_64
-        elif self.operationMode[C.PREAMBLE_LENGTH_BIT] == C.TX_PREAMBLE_LEN_2048:
-            plen = C.PLEN_2048
-        else:
-            plen = C.PLEN_0
+        try:
+            plen = C.PLEN_DICT[self.operationMode[C.PREAMBLE_LENGTH_BIT]]
+        except KeyError:
+            plen = 0
 
-        if self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_110KBPS:
-            dr = C.DATA_RATE_110
-        elif self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_850KBPS:
-            dr = C.DATA_RATE_850
-        elif self.operationMode[C.DATA_RATE_BIT] == C.TRX_RATE_6800KBPS:
-            dr = C.DATA_RATE_6800
-        else:
-            dr = C.DATA_RATE_0
+        try:
+            dr = C.DATA_RATE_DICT[self.operationMode[C.DATA_RATE_BIT]]
+        except KeyError:
+            dr = 0
 
         ch = self.operationMode[C.CHANNEL_BIT]
         pcode = self.operationMode[C.PREAMBLE_CODE_BIT]
-        print("Device mode: Data rate {} kb/s, PRF : {} MHz, Preamble: {} symbols (code {}), Channel : {}".format(dr, prf, plen, pcode, ch))
+
+        return "Device mode: Data rate {} kb/s, PRF : {} MHz, Preamble: {} symbols (code {}), Channel : {}".format(dr, prf, plen, pcode, ch)
 
 
     def readBytesOTP(self, address, data):

@@ -27,6 +27,14 @@ class DW1000Register:
 
         return (self.data[byteidx] >> shift) & 0x1
 
+    def getBitsOr(self, bits):
+        ret = 0
+
+        for bit in bits:
+            ret |= self.getBit(bit)
+        
+        return ret
+
     def setAll(self, value):
         for i in range(0, self.size):
             self.data[i] = value

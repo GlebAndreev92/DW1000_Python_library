@@ -7,6 +7,7 @@ import time
 import DW1000Constants as C
 import MAC
 from datetime import datetime, timedelta
+import logging
 
 PIN_IRQ = 16
 PIN_CS = 8
@@ -18,23 +19,22 @@ dw1000 = None
 def interruptCB():
     # First read sysstatus to get interrupt reason
     dw1000.readRegister(dw1000.sysstatus)
-    dw1000.printStatusRegister()
-    print("")
+    logging.debug(dw1000.getStatusRegisterString())
     if dw1000.sysstatus.getBit(C.RXDFR_BIT) or dw1000.sysstatus.getBit(C.RXFCG_BIT):
         message = dw1000.getMessage()
         dw1000.toggleHSRBP()
         try:
             MAC.printHeader(message)
         except:
-            print("Not a valid 802.15.4 frame")
+            logging.warning("Not a valid 802.15.4 frame")
 
 
 def setup():
     global dw1000
     dw1000 = DW1000(PIN_CS, PIN_RST, PIN_IRQ)
     dw1000.begin()
-    print("DW1000 initialized")
-    print("############### Test sender ##############")	
+    logging.info("DW1000 initialized")
+    logging.info("############### Sniffer ##############")	
 
     dw1000.generalConfiguration(EID, PAN, C.MODE_STANDARD)
     dw1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)
@@ -54,7 +54,7 @@ def setup():
 
     dw1000.clearAllStatus()
 
-    dw1000.printDeviceInfo()
+    logging.info(dw1000.getDeviceInfoString())
 
 
 def main():

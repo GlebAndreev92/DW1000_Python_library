@@ -54,18 +54,20 @@ TRX_RATE_110KBPS = 0x00
 TRX_RATE_850KBPS = 0x01
 TRX_RATE_6800KBPS = 0x02
 """ Only used for human readable printing """
-DATA_RATE_0 = 0
-DATA_RATE_110 = 110
-DATA_RATE_850 = 850
-DATA_RATE_6800 = 6800
+DATA_RATE_DICT = {
+    TRX_RATE_110KBPS    : 110,
+    TRX_RATE_850KBPS    : 850,
+    TRX_RATE_6800KBPS   : 6800
+}
 
 # Transmission pulse frequency
 TX_PULSE_FREQ_16MHZ = 0x01
 TX_PULSE_FREQ_64MHZ = 0x02
 """ Only used for human readable printing """
-PFREQ_0 = 0 
-PFREQ_16 = 16
-PFREQ_64 = 64
+PFREQ_DICT = {
+    TX_PULSE_FREQ_16MHZ     : 16,
+    TX_PULSE_FREQ_64MHZ     : 64
+}
 
 # Preamble length
 TX_PREAMBLE_LEN_64 = 0x01
@@ -77,9 +79,16 @@ TX_PREAMBLE_LEN_1536 = 0x06
 TX_PREAMBLE_LEN_2048 = 0x0A
 TX_PREAMBLE_LEN_4096 = 0x03
 """ Only used for human readable printing """
-PLEN_0 = 0
-PLEN_64 = 64
-PLEN_2048 = 2048
+PLEN_DICT = {
+    TX_PREAMBLE_LEN_64      : 64,
+    TX_PREAMBLE_LEN_128     : 128,
+    TX_PREAMBLE_LEN_256     : 256,
+    TX_PREAMBLE_LEN_512     : 512,
+    TX_PREAMBLE_LEN_1024    : 1024,
+    TX_PREAMBLE_LEN_1536    : 1536,
+    TX_PREAMBLE_LEN_2048    : 2048,
+    TX_PREAMBLE_LEN_4096    : 4096    
+}
 
 # PAC size
 PAC_SIZE_8 = 8
@@ -312,6 +321,15 @@ RXRSCS_BIT = 32         # Receiver Reed-Solomon Correction Status
 RXPREJ_BIT = 33         # Receiver Preamble Rejection
 TXPUTE_BIT = 34         # Transmit power up time error
 
+SYS_STATUS_ALL_RX_GOOD = (RXDFR_BIT, RXFCG_BIT, RXPRD_BIT, \
+                            RXSFDD_BIT, RXPHD_BIT, LDEDONE_BIT)
+SYS_STATUS_ALL_DBLBUFF = (RXDFR_BIT, RXFCG_BIT)
+SYS_STATUS_ALL_RX_ERR = (RXPHE_BIT, RXFCE_BIT, RXRFSL_BIT, \
+                            AFFREJ_BIT, LDEERR_BIT)
+SYS_STATUS_ALL_RX_TO = (RXRFTO_BIT, RXPTO_BIT)
+SYS_STATUS_ALL_TX = (AAT_BIT, TXFRB_BIT, TXPRS_BIT, \
+                        TXPHS_BIT, TXFRS_BIT)
+
 # 0x1F: Channel control register bits, see 7.2.32 of user manual
 DWSFD_BIT = 17
 TNSSFD_BIT = 20
@@ -343,6 +361,7 @@ PMSC_CTRL0_GPDRN_BIT = 19
 SOFT_RESET_SYSCLKS = 0x01
 SOFT_RESET_CLEAR = 0x00
 SOFT_RESET_SET = 0xF0
+SOFT_RESET_RX = 0xE0 # Assuming only 4th byte is written!
 
 # 0x36 0x28: PMSCLEDC bits and preconfigured bytes
 PMSC_LEDC_BLINKEN_BIT = 8

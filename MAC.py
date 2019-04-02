@@ -166,16 +166,38 @@ class MACHeader():
         
         return ret
 
-def printHeader(message):
+def getPayload(message):
+    """
+    Use to extract payload without header or crc.
+
+    Args:
+        message: 802.15.4a message
+
+    Returns:
+        String containing payload data
+    """
+    try:
+        header = MACHeader.decode(message)
+        return message[header.dataOffset:-2]
+    except:
+        return ""
+
+def getHeaderString(message):
     """
     This is a callback called from the module's interrupt handler when a reception was successful. 
     It sets the received receivedAck as True so the loop can continue.
+
+    Args:
+        message: 802.15.4a message
+
+    Returns:
+        String containing header information
     """
-    print("Received frame:\n{}\n".format(str(message)))
+    hdrstr = ""
     header = MACHeader.decode(message)
-    print("Decoded Header:\n{}\n".format(str(header)))
+    hdrstr += "Decoded Header:\n{}\n".format(str(header))
     if header.frameControl.frameType == FT_DATA:
         payload = message[header.dataOffset:-2]
-        print("Payload:\n{}\n".format(bytes(payload)))
+        hdrstr += "Payload:\n{}\n".format(bytes(payload))
     elif header.frameControl.frameType == FT_ACK:
-        print("Received Ack Frame for Sequence {}".format(header.seqNumber))
+        hdrstr += "Received Ack Frame for Sequence {}".format(header.seqNumber)
