@@ -31,6 +31,8 @@ class DW1000:
 
         self.spi = None
 
+        self.dblbuffon = False
+
         self.sysctrl = DW1000Register(C.SYS_CTRL, C.NO_SUB, 4)
         self.chanctrl = DW1000Register(C.CHAN_CTRL, C.NO_SUB, 4)
         self.syscfg = DW1000Register(C.SYS_CFG, C.NO_SUB, 4)
@@ -53,6 +55,7 @@ class DW1000:
         self.extendedAddress = None
         self.shortAddress = None
 
+        # Main interrupt callback
         self.interruptCallback = None
 
 
@@ -214,6 +217,20 @@ class DW1000:
         GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
 
     
+    def enableDoubleBuffer(self):
+        self.dblbuffon = True
+        self.syncHSRBP()
+        self.syscfg.setBit(C.HSRBP_BIT, True)
+        self.writeRegister(self.syscfg)
+
+    
+    def disableDoubleBuffer(self):
+        self.dblbuffon = False
+        self.syncHSRBP()
+        self.syscfg.setBit(C.HSRBP_BIT, False)
+        self.writeRegister(self.syscfg)
+
+
     def rxreset(self):
         self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_RX]), 1)
         self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_SET]), 1)
