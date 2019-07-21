@@ -107,7 +107,8 @@ class DW1000:
 
 
     def stop(self):
-        self.hardReset()
+        self.disableInterrupt()
+        GPIO.setup(self.rst, GPIO.OUT, initial=GPIO.LOW)
         time.sleep(0.1)
         self.spi.close()
         GPIO.cleanup()
@@ -162,18 +163,19 @@ class DW1000:
 
 
     def toggleHSRBP(self):
-        # Save interrupt mask and change HRBPT bits
-        oldmask = self.sysmask.data.copy()
-        self.sysmask.setBits((C.MRXFCE_BIT, C.MRXFCG_BIT, C.MRXDFR_BIT, C.MLDEDONE_BIT), False)
-        self.writeRegister(self.sysmask)
+        if self.dblbuffon:
+            # Save interrupt mask and change HRBPT bits
+            oldmask = self.sysmask.data.copy()
+            self.sysmask.setBits((C.MRXFCE_BIT, C.MRXFCG_BIT, C.MRXDFR_BIT, C.MLDEDONE_BIT), False)
+            self.writeRegister(self.sysmask)
 
-        # Toggle HSRBP
-        self.sysctrl.setBit(C.HRBPT_BIT, True)
-        self.writeRegister(self.sysctrl)
+            # Toggle HSRBP
+            self.sysctrl.setBit(C.HRBPT_BIT, True)
+            self.writeRegister(self.sysctrl)
 
-        # Restore interrupt mask
-        self.sysmask.data = oldmask
-        self.writeRegister(self.sysmask)
+            # Restore interrupt mask
+            self.sysmask.data = oldmask
+            self.writeRegister(self.sysmask)
 
 
     def syncHSRBP(self):
