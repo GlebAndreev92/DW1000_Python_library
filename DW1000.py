@@ -56,7 +56,7 @@ class DW1000:
         self.shortAddress = None
 
         # Main interrupt callback
-        self.interruptCallback = None
+        self.interruptCallback = lambda: None
 
 
     def begin(self):
@@ -101,7 +101,7 @@ class DW1000:
         self.manageLDE()
         self.enableClock(C.AUTO_CLOCK)
 
-        self.spi.max_speed_hz = 15600000
+        #self.spi.max_speed_hz = 15600000
 
         logging.info("Started DW1000")
 
@@ -981,11 +981,8 @@ class DW1000:
                 True if the reception failed.
                 False otherwise.
         """
-        ldeErr = self.sysstatus.getBit(C.LDEERR_BIT)
-        rxCRCErr = self.sysstatus.getBit(C.RXFCE_BIT)
-        rxHeaderErr = self.sysstatus.getBit(C.RXPHE_BIT)
-        rxDecodeErr = self.sysstatus.getBit(C.RXRFSL_BIT)
-        if (ldeErr or rxCRCErr or rxHeaderErr or rxDecodeErr):
+        val = self.sysstatus.getBitsOr([C.LDEERR_BIT, C.RXFCE_BIT, C.RXPHE_BIT, C.RXRFSL_BIT])
+        if val:
             return True
         else:
             return False
@@ -1353,7 +1350,7 @@ class DW1000:
         """
         timestamp = 0
         for i in range(0, 5):
-            timestamp |= data[i+index] << (i*8)
+            timestamp |= int(data[i+index]) << (i*8)
         return timestamp
 
 
@@ -1472,10 +1469,8 @@ class DW1000:
                 data: the byte array which contains the data to be written in the register
                 dataLength: The size of the data which will be sent.
         """
-        logging.debug("Data to TX: " + str(data))
         self.writeBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
         self.readBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
-        logging.debug("Data from TX: " + str(data))
         dataLength += 2  # _frameCheck true, two bytes CRC
         self.txfctrl[0] = (dataLength & C.MASK_LS_BYTE)
         self.txfctrl[1] &= C.SET_DATA_MASK1
