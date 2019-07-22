@@ -9,6 +9,7 @@ import MAC
 import logging
 import copy
 import faulthandler
+from datetime import datetime, timedelta
 
 PIN_IRQ = 16
 PIN_CS = 8
@@ -23,21 +24,20 @@ address = 0
 
 sendTS = False
 
+timeout = datetime.utcnow()
+timeoutold = datetime.utcnow()
+timeoutlimit = timedelta(milliseconds=500)
+
 def interruptCB():
-    global replyTime, timeRecv, address, sendTS
+    global replyTime, timeRecv, address, sendTS, timeoutold
 
     enableRx = False
 
     # First read sysstatus and copy it
     dw1000.readRegister(dw1000.sysstatus)
-    logging.debug(dw1000.getStatusRegisterString())
-
     status = copy.deepcopy(dw1000.sysstatus)
 
     while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
-
-        logging.debug("Interrupt CB Loop")
-        logging.debug(dw1000.getStatusRegisterString())
 
         if status.getBit(C.RXFCG_BIT):
             logging.debug("RXFCG")
@@ -55,7 +55,7 @@ def interruptCB():
             #logging.debug(header)
             #logging.debug(message)
             timeRecv = dw1000.getReceiveTimestamp()
-            address = header.srcAddr
+            #address = header.srcAddr
             # <<<<<<<<<
 
             # Switch Host Side Receive Buffer Pointer
@@ -64,10 +64,12 @@ def interruptCB():
         if status.getBit(C.TXFRS_BIT):
             logging.debug("TXFRS")
             dw1000.clearStatus(C.SYS_STATUS_ALL_TX)
+            enableRx = True
 
             if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
-                dw1000.forceTRxOff()
-                dw1000.rxreset()
+                #dw1000.forceTRxOff()
+                #dw1000.rxreset()
+                enableRx = True
 
             # User code
             # >>>>>>>>
@@ -75,9 +77,10 @@ def interruptCB():
                 timeSend = dw1000.getTransmitTimestamp()
                 replyTime = dw1000.wrapTimestamp(timeSend - timeRecv)
                 logging.debug("Sending reply time {}".format(replyTime))
-                dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", str(replyTime).encode(), ackReq=False, wait4resp=True, delay=7000)
+                dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", (str(timeRecv)+ " " + str(timeSend)).encode(), ackReq=False, wait4resp=True, delay=0)
+                enableRx=False
             # <<<<<<<<
-            enableRx = True
+            
 
         if status.getBitsOr(C.SYS_STATUS_ALL_RX_TO):
             logging.debug("RXRFTO")
@@ -107,6 +110,8 @@ def interruptCB():
 
         dw1000.readRegister(dw1000.sysstatus)
         status = copy.deepcopy(dw1000.sysstatus)
+
+        timeoutold = datetime.now()
 
     if enableRx:
         dw1000.newReceive()
@@ -150,7 +155,13 @@ def main():
         dw1000.startReceive()
 
         while 1:
-            time.sleep(1)
+            interruptCB()
+
+            dt = timeout - timeoutold
+            if dt > timeoutlimit:
+                dw1000.idle()
+                dw1000.newReceive()
+                dw1000.startReceive()
 
     except KeyboardInterrupt:
         dw1000.stop()

@@ -79,7 +79,7 @@ class DW1000:
         # Setup Host GPIO
         GPIO.setup(self.cs, GPIO.OUT, initial=GPIO.HIGH)
         GPIO.setup(self.irq, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # TODO: CHECK
-        self.enableInterrupt()
+        #self.enableInterrupt()
 
         self.enableClock(C.AUTO_CLOCK)
 
@@ -101,7 +101,7 @@ class DW1000:
         self.manageLDE()
         self.enableClock(C.AUTO_CLOCK)
 
-        #self.spi.max_speed_hz = 15600000
+        self.spi.max_speed_hz = 7800000
 
         logging.info("Started DW1000")
 
@@ -121,7 +121,7 @@ class DW1000:
         """
         # Low for 100ms for reset
         GPIO.setup(self.rst, GPIO.OUT, initial=GPIO.LOW)
-        time.sleep(0.10)
+        time.sleep(0.20)
         # Reset pin to high impedance open drain
         GPIO.cleanup(self.rst)
 
@@ -207,17 +207,19 @@ class DW1000:
         self.sysmask.data = mask
         self.writeRegister(self.sysmask)
 
-        self.enableInterrupt()
+        #self.enableInterrupt()
         self.sysctrl.setBit(C.WAIT4RESP_BIT, False)
 
 
     def disableInterrupt(self):
         GPIO.remove_event_detect(self.irq)
 
-    
-    def enableInterrupt(self):
-        GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
 
+    def enableInterrupt(self):
+        try:
+            GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
+        except:
+            logging.error("Failed to enable interrupt!")
     
     def enableDoubleBuffer(self):
         self.dblbuffon = True
@@ -234,8 +236,8 @@ class DW1000:
 
 
     def rxreset(self):
-        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_RX]), 1)
-        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytes([C.SOFT_RESET_SET]), 1)
+        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytearray([C.SOFT_RESET_RX]), 1)
+        self.writeBytes(C.PMSC, C.PMSC_CTRL0_SUB+0x3, bytearray([C.SOFT_RESET_SET]), 1)
 
 
     def readBytes(self, cmd, offset, data, n):
@@ -256,12 +258,18 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        _data = self.spi.xfer2(header[0:headerLen] + bytearray(n))
+        #_data = self.spi.xfer2(header[0:headerLen] + bytearray(n))
+
+        for i in range(0, headerLen):
+            self.spi.xfer([int(header[i])])
+
+        for i in range(0, n):
+            data[i] = self.spi.xfer([C.JUNK])[0]
 
         GPIO.output(self.cs, GPIO.HIGH)
 
-        for i in range(0, n):
-            data[i] = _data[headerLen + i]
+        #for i in range(0, n):
+        #    data[i] = _data[headerLen + i]
 
 
     def writeBytes(self, cmd, offset, data, dataSize):
@@ -291,7 +299,14 @@ class DW1000:
 
         GPIO.output(self.cs, GPIO.LOW)
 
-        self.spi.xfer2(header[0:headerLen] + data[0:dataSize])
+        for i in range(0, headerLen):
+            self.spi.xfer([int(header[i])])
+
+        for i in range(0, dataSize):
+            if (data[i] != None):
+                self.spi.xfer([int(data[i])])
+
+        #self.spi.xfer2(header[0:headerLen] + data[0:dataSize])
 
         GPIO.output(self.cs, GPIO.HIGH)
 
@@ -522,11 +537,11 @@ class DW1000:
             self.chanctrl.setBits((C.DWSFD_BIT, C.TNSSFD_BIT, C.RNSSFD_BIT), True)
 
         if rate == C.TRX_RATE_850KBPS:
-            sfdLength = bytes([C.SFD_LENGTH_850KBPS])
+            sfdLength = bytearray([C.SFD_LENGTH_850KBPS])
         elif rate == C.TRX_RATE_6800KBPS:
-            sfdLength = bytes([C.SFD_LENGTH_6800KBPS])
+            sfdLength = bytearray([C.SFD_LENGTH_6800KBPS])
         else:
-            sfdLength = bytes([C.SFD_LENGTH_OTHER])
+            sfdLength = bytearray([C.SFD_LENGTH_OTHER])
 
         self.writeBytes(C.USR_SFD, C.SFD_LENGTH_SUB, sfdLength, 1)
         self.operationMode[C.DATA_RATE_BIT] = rate
@@ -1517,8 +1532,8 @@ class DW1000:
         addressBytes[0] = address & C.MASK_LS_BYTE
         addressBytes[1] = (address >> 8) & C.MASK_LS_BYTE
         self.writeBytes(C.OTP_IF, C.OTP_ADDR_SUB, addressBytes, 2)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP2]), 1)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP3]), 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytearray([C.OTP_STEP2]), 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytearray([C.OTP_STEP3]), 1)
         self.readBytes(C.OTP_IF, C.OTP_RDAT_SUB, data, 4)
-        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytes([C.OTP_STEP5]), 1)
+        self.writeBytes(C.OTP_IF, C.OTP_CTRL_SUB, bytearray([C.OTP_STEP5]), 1)
         return data

@@ -22,10 +22,10 @@ dw1000 = None
 Send = 0
 Acked = 0
 Timeouts = 0
-Start = None
-End = None
-ReplyTime = None
-RoundTime = None
+time_poll_send_ts = None
+time_poll_recv_ts = None
+time_resp_send_ts = None
+time_resp_recv_ts = None
 
 work = 0
 
@@ -33,9 +33,20 @@ timeout = datetime.utcnow()
 timeoutold = datetime.utcnow()
 timeoutlimit = timedelta(milliseconds=500)
 
+rxrftoLimit = 10
+rxrftoCount = 0
+
+anchor_list = [b"\x11\x3b"]
+
+def computeRange():
+    roundTime = dw1000.wrapTimestamp(time_resp_recv_ts - time_poll_send_ts)
+    replyTime = dw1000.wrapTimestamp(time_resp_send_ts - time_poll_recv_ts)
+    timeComputeRangeTs = 0.5 * (roundTime - replyTime)
+    return timeComputeRangeTs * C.DISTANCE_OF_RADIO
 
 def interruptCB():
-    global Send, Acked, Timeouts, Start, End, ReplyTime, RoundTime
+    #dw1000.disableInterrupt()
+    global Send, Acked, Timeouts, time_poll_send_ts, time_poll_recv_ts, time_resp_send_ts, time_resp_recv_ts, timeoutold, rxrftoCount, rxrftoLimit
 
     enableRx = False
 
@@ -44,7 +55,6 @@ def interruptCB():
     status = copy.deepcopy(dw1000.sysstatus)
 
     while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
-        logging.debug(dw1000.getStatusRegisterString())
         if status.getBit(C.RXFCG_BIT):
             logging.debug("RXFCG")
             dw1000.clearStatus(C.SYS_STATUS_ALL_RX_GOOD)
@@ -63,14 +73,16 @@ def interruptCB():
             # >>>>>>>>
             logging.debug(message)
             if header.frameControl.frameType == MAC.FT_ACK:
-                End = dw1000.getReceiveTimestamp()
+                time_resp_recv_ts = dw1000.getReceiveTimestamp()
                 Acked += 1
             else:
-                logging.debug("!!!!!!!!!!!!!!!!!!!!!!")
-                ReplyTime = int(MAC.getPayload(message).decode())
-                RoundTime = dw1000.wrapTimestamp(End - Start)
-                logging.debug(ReplyTime)
-                logging.debug(RoundTime)
+                try:
+                    time_poll_recv_ts, time_resp_send_ts = [int(i) for i in MAC.getPayload(message).decode().split(" ")]
+                    logging.debug("time_poll_recv_ts: {}".format(time_poll_recv_ts))
+                    logging.debug("time_resp_send_ts: {}".format(time_resp_send_ts))
+                    logging.debug("Range: {}".format(computeRange()))
+                except:
+                    pass
 
             enableRx = True
             # <<<<<<<<<
@@ -83,13 +95,13 @@ def interruptCB():
             logging.debug("TXFRS")
             dw1000.clearStatus(C.SYS_STATUS_ALL_TX)
 
-            #if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
-            #   dw1000.forceTRxOff()
-            #    dw1000.rxreset()
+            if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
+                dw1000.forceTRxOff()
+                dw1000.rxreset()
 
             # User code
             # >>>>>>>>
-            Start = dw1000.getTransmitTimestamp()
+            time_poll_send_ts = dw1000.getTransmitTimestamp()
             Send += 1
             # <<<<<<<<
 
@@ -103,7 +115,13 @@ def interruptCB():
 
             # User code
             # >>>>>>>>
-            dw1000.sendMessage(b"\x11\x3b", b"\xca\xde", b"", ackReq=True, wait4resp=True)
+            rxrftoCount += 1
+            if rxrftoCount == rxrftoLimit:
+                dw1000.sendMessage(b"\x11\x3b", b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                rxrftoCount = 0
+            else:
+                dw1000.newReceive()
+                dw1000.startReceive()
             # <<<<<<<<
 
         if status.getBitsOr(C.SYS_STATUS_ALL_RX_ERR):
@@ -127,6 +145,8 @@ def interruptCB():
     if enableRx:
         dw1000.newReceive()
         dw1000.startReceive()
+
+    #dw1000.enableInterrupt()
 
 
 def setup():
@@ -168,6 +188,8 @@ def main():
         timeoutold = datetime.utcnow()
 
         while 1:
+            interruptCB()
+
             timeout = datetime.utcnow()
 
             dt = timeout - timeoutold

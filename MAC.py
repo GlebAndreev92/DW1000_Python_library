@@ -180,7 +180,7 @@ def getPayload(message):
         header = MACHeader.decode(message)
         return message[header.dataOffset:-2]
     except:
-        return ""
+        return b""
 
 def getHeaderString(message):
     """
