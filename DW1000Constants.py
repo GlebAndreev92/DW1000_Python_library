@@ -98,7 +98,7 @@ PAC_SIZE_64 = 64
 
 # DW1000 Modes of operation
 # [dataRate, pulseFrequency, pacSize, preambleLength, channel, preacode]
-MODE_STANDARD = [TRX_RATE_6800KBPS, TX_PULSE_FREQ_64MHZ, PAC_SIZE_8, TX_PREAMBLE_LEN_128, CHANNEL_5, PREAMBLE_CODE_64MHZ_10]
+MODE_STANDARD = [TRX_RATE_110KBPS, TX_PULSE_FREQ_64MHZ, PAC_SIZE_64, TX_PREAMBLE_LEN_2048, CHANNEL_5, PREAMBLE_CODE_64MHZ_9]
 
 # Register file IDs     Description                                 R/W Octets
 DEV_ID = 0x00           # Device Identifier                         RO  4
@@ -328,7 +328,7 @@ SYS_STATUS_ALL_RX_ERR = (RXPHE_BIT, RXFCE_BIT, RXRFSL_BIT, \
                             AFFREJ_BIT, LDEERR_BIT)
 SYS_STATUS_ALL_RX_TO = (RXRFTO_BIT, RXPTO_BIT)
 SYS_STATUS_ALL_TX = (AAT_BIT, TXFRB_BIT, TXPRS_BIT, \
-                        TXPHS_BIT, TXFRS_BIT)
+                       TXPHS_BIT, TXFRS_BIT)
 
 # 0x1F: Channel control register bits, see 7.2.32 of user manual
 DWSFD_BIT = 17
@@ -574,3 +574,24 @@ PREAMBLE_CODE_BIT = 5
 
 RECEIVER = 0
 TRANSMITTER = 1
+
+# Messages used in the ranging protocol
+    # -- Message types
+POLL = 0
+POLL_ACK = 1
+RANGE = 2
+RANGE_REPORT = 3
+RANGE_FAILED = 255
+BLINK = 4
+RANGING_INIT = 5
+
+LEN_DATA = 90
+
+# Default value
+# in ms
+DEFAULT_RESET_PERIOD = 200
+# in us
+DEFAULT_REPLY_DELAY_TIME = 7000
+
+# Default timer delay
+DEFAULT_TIMER_DELAY = 80
