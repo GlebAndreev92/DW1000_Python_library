@@ -8,6 +8,7 @@ import DW1000Constants as C
 import MAC
 import logging
 import copy
+import faulthandler
 
 PIN_IRQ = 16
 PIN_CS = 8
@@ -22,7 +23,6 @@ address = 0
 
 sendTS = False
 
-
 def interruptCB():
     global replyTime, timeRecv, address, sendTS
 
@@ -36,6 +36,9 @@ def interruptCB():
 
     while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
 
+        logging.debug("Interrupt CB Loop")
+        logging.debug(dw1000.getStatusRegisterString())
+
         if status.getBit(C.RXFCG_BIT):
             logging.debug("RXFCG")
             dw1000.clearStatus(C.SYS_STATUS_ALL_RX_GOOD)
@@ -45,10 +48,12 @@ def interruptCB():
 
             if status.getBit(C.AAT_BIT) and header.frameControl.ackRequest == 0:
                 dw1000.clearStatus([C.AAT_BIT])
+                enableRx = True
 
             # User code
             # >>>>>>>>
-            logging.debug(message)
+            #logging.debug(header)
+            #logging.debug(message)
             timeRecv = dw1000.getReceiveTimestamp()
             address = header.srcAddr
             # <<<<<<<<<
@@ -69,7 +74,8 @@ def interruptCB():
             if status.getBit(C.AAT_BIT):
                 timeSend = dw1000.getTransmitTimestamp()
                 replyTime = dw1000.wrapTimestamp(timeSend - timeRecv)
-                dw1000.sendMessage(address, b"\xca\xde", str(replyTime).encode(), ackReq=False, wait4resp=False)
+                logging.debug("Sending reply time {}".format(replyTime))
+                dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", str(replyTime).encode(), ackReq=False, wait4resp=True, delay=7000)
             # <<<<<<<<
             enableRx = True
 
@@ -124,7 +130,8 @@ def setup():
     dw1000.writeRegister(dw1000.syscfg)
 
     # Set HSRBP to ICRBP for double buffering
-    dw1000.syncHSRBP()
+    #dw1000.disableDoubleBuffer()
+    dw1000.enableDoubleBuffer()
 
     # Enable receiver buffer overrun detection, data frame receive
     dw1000.sysmask.clear()
@@ -141,7 +148,7 @@ def main():
         setup()
         dw1000.newReceive()
         dw1000.startReceive()
-        
+
         while 1:
             time.sleep(1)
 
@@ -150,5 +157,6 @@ def main():
 
 
 if __name__ == "__main__":
+    faulthandler.enable()
     logging.basicConfig(level=logging.DEBUG)
     main()
