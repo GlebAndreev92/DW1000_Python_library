@@ -1,0 +1,14 @@
+[Unit]
+Description=Start construction side surveillance application
+Requires=multi-user.target network-online.target
+
+[Service]
+User=pi
+Type=simple
+Restart=always
+SyslogIdentifier=tag
+WorkingDirectory=/home/pi/DW1000/
+ExecStart=/usr/bin/python3 /home/pi/DW1000/tag.py
+
+[Install]
+WantedBy=multi-user.target
