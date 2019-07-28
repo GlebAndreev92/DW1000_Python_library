@@ -1,3 +1,9 @@
+"""@package docstring
+Node superclass for parts of SS-TWR system.
+
+This module provides a superclass for tags and anchors.
+"""
+
 import time
 import logging
 import copy
@@ -13,10 +19,12 @@ class Node:
     def __init__(self):
         self.dw1000 = None
 
-        self.timeout = time.monotonic()
-        self.timeout_old = time.monotonic()
-        self.timeout_limit = 0.5
+        self.timeout = time.monotonic() # Current time
+        self.timeout_old = time.monotonic() # Last valid timestamp
+        self.timeout_limit = 0.5 # Maximum time between timeout and timeout_old
+        self.timeouts = 0 # Stores number of timeouts
 
+        # Callbacks to be set by subclasses
         self.cb_rxfcg = lambda: None
         self.cb_txfrs = lambda: None
         self.cb_rxrfto = lambda: None
@@ -25,14 +33,18 @@ class Node:
         self.cb_irq_while = lambda: None
         self.cb_reset = lambda: None
 
-        self.enableRx = False
+        self.enableRx = False # Enable receiver at end of interruptCB?
 
-        self.status = None
+        self.status = None # Store status register of dw1000
 
-        self.message = None
-        self.header = None
+        self.message = None # Store last message
+        self.header = None # Store header of last message
 
     def setup(self):
+        """ Node setup 
+
+        Normally called by setup function inside subclass.
+        """
         self.dw1000 = DW1000(config.pin_cs, config.pin_rst, config.pin_irq)
         self.dw1000.begin()
         logging.info("DW1000 initialized")
@@ -44,6 +56,12 @@ class Node:
         logging.info(self.dw1000.getDeviceInfoString())
 
     def run(self):
+        """ Loop function of nodes
+
+        This function can be called after creation and call to setup().
+        It runs the main loop and checks for inactivity of the DW1000.
+        If a timeout occurs, a custom callback can be called.
+        """
         self.dw1000.newReceive()
         self.dw1000.startReceive()
 
@@ -57,16 +75,24 @@ class Node:
                 logging.error("Reset inactive")
                 self.cb_reset()
                 self.timeout_old = self.timeout
+                self.timeouts += 1
 
     def stop(self):
+        """ Stops the node """
         self.dw1000.stop()
 
     def interruptCB(self):
+        """ Interrupt routine checking the important status flags.
+
+        Subclasses use this functionality by setting their own callback functions.
+        """
         self.enableRx = False
 
+        # Read and store the status register
         self.dw1000.readRegister(self.dw1000.sysstatus)
         self.status = copy.deepcopy(self.dw1000.sysstatus)
 
+        # Loop over status register, status is queries again at the end of the loop
         while(self.status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
 
             self.cb_irq_while()

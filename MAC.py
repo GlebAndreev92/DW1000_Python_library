@@ -104,6 +104,7 @@ macPayloadBeaconStruct = Struct(
 )
 
 class FrameControl:
+    """ FrameControl field of a 802.15.4a message """
     def __init__(self):
         self.frameType = 0
         self.secEnable = 0
@@ -115,6 +116,7 @@ class FrameControl:
         self.srcAddrMode = 0
 
 class MACHeader():
+    """ MAC header of a 802.15.4a message """
     def __init__(self):
         self.frameControl = FrameControl()
         self.seqNumber = 0
@@ -126,6 +128,11 @@ class MACHeader():
         self.dataOffset = 0
 
     def encode(self):
+        """ Encode the header to byte structure
+
+        Returns:
+            (bytes): The encoded header
+        """
         global macHeaderStruct
 
         machdrdict = vars(self)
@@ -134,6 +141,14 @@ class MACHeader():
 
     @staticmethod
     def decode(rawhdr):
+        """ Decode a byte structure to a header
+
+        Args:
+            rawhdr (bytes): Bytes containing a header
+
+        Returns:
+            (MACHeader)
+        """
         global macHeaderStruct
 
         macHeader = MACHeader()
@@ -171,10 +186,10 @@ def getPayload(message):
     Use to extract payload without header or crc.
 
     Args:
-        message: 802.15.4a message
+        message (bytes): 802.15.4a message
 
     Returns:
-        String containing payload data
+        (bytes): payload data
     """
     try:
         header = MACHeader.decode(message)
@@ -188,10 +203,10 @@ def getHeaderString(message):
     It sets the received receivedAck as True so the loop can continue.
 
     Args:
-        message: 802.15.4a message
+        message (bytes): 802.15.4a message
 
     Returns:
-        String containing header information
+        (string): header information
     """
     hdrstr = ""
     header = MACHeader.decode(message)
