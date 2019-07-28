@@ -1,264 +1,171 @@
-"""
-This python script uses the DW1000 as a sniffer device
-"""
-
-from DW1000 import DW1000
-import time
-import DW1000Constants as C
-import MAC
 import logging
-from datetime import datetime, timedelta
-import copy
-import faulthandler
+from datetime import datetime
+
+import node
+import DW1000Constants as C
 from trilaterate import Trilaterator
-
-PIN_IRQ = 16
-PIN_CS = 8
-PIN_RST = 12
-EID = "7D:00:22:EA:82:60:3B:00"
-PAN = 0xdeca
-dw1000 = None
-logfile = open("/home/pi/uwb.log", "a")
-
-Send = 0
-Acked = 0
-Timeouts = 0
-time_poll_send_ts = None
-time_poll_recv_ts = None
-time_resp_send_ts = None
-time_resp_recv_ts = None
-
-work = 0
-
-timeout = datetime.utcnow()
-timeoutold = datetime.utcnow()
-timeoutlimit = timedelta(milliseconds=500)
-
-rxrftoLimit = 10
-rxrftoCount = 0
-
-anchor_list = [b"\x0a\x3b", b"\x0b\x3b", b"\x0c\x3b", b"\x0d\x3b"]
-anchor_positions = [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]]
-anchor_distances = {}
-anchor_idx = 0
-anchor_tries = 0
-anchor_tries_limit = 10
-anchor_next = False
-
-trilaterator = Trilaterator()
+import config
+import MAC
 
 def unixTimestamp():
     return datetime.timestamp(datetime.utcnow())
 
-def computeRange():
-    roundTime = dw1000.wrapTimestamp(time_resp_recv_ts - time_poll_send_ts)
-    replyTime = dw1000.wrapTimestamp(time_resp_send_ts - time_poll_recv_ts)
-    timeComputeRangeTs = 0.5 * (roundTime - replyTime)
-    return (timeComputeRangeTs % C.TIME_OVERFLOW) * C.DISTANCE_OF_RADIO
+class Tag(node.Node):
+    def __init__(self):
+        super().__init__()
 
-def updateAnchors():
-    global anchor_list, anchor_distances, anchor_idx, anchor_next, anchor_positions, anchor_tries, anchor_tries_limit, rxrftoCount
-    if anchor_next or anchor_tries >= anchor_tries_limit:
-        anchor_idx = (anchor_idx + 1) % len(anchor_list)
-        # Calculate position of anchor after trying to measure distance to all anchors
-        if anchor_idx == 0:
-            logging.debug("End of round:\nNumber of distances: {}".format(len(anchor_distances)))
-            if len(anchor_distances) >= 3:
-                valid_positions = []
-                valid_distances = []
-                for k, v in anchor_distances.items():
-                    valid_positions.append(anchor_positions[k])
-                    valid_distances.append(v)
-                position = trilaterator.trilaterate(valid_positions, valid_distances, valid_positions[0])
-                logstring = "{} P {:2} {:2} {:2}\n".format(unixTimestamp(), *position)
-                logfile.write(logstring)
-            anchor_distances.clear()
-        # Reset number of tries
-        anchor_tries = 0
-        anchor_next = False
-        rxrftoCount = 0
+        self.send = 0
+        self.acked = 0
+        self.timeouts = 0
 
-def interruptCB():
-    #dw1000.disableInterrupt()
-    global Send, Acked, Timeouts, time_poll_send_ts, time_poll_recv_ts, time_resp_send_ts, time_resp_recv_ts, timeoutold, rxrftoCount, rxrftoLimit
-    global anchor_list, anchor_distances, anchor_idx, anchor_next, anchor_positions, anchor_tries, anchor_tries_limit
+        self.time_poll_send_ts = None
+        self.time_poll_recv_ts = None
+        self.time_resp_send_ts = None
+        self.time_resp_recv_ts = None
 
-    enableRx = False
+        self.rxrfto_limit = 10
+        self.rxrfto_count = 0
 
-    # First read sysstatus and copy it
-    dw1000.readRegister(dw1000.sysstatus)
-    status = copy.deepcopy(dw1000.sysstatus)
+        self.anchor_list = config.anchor_list
+        self.anchor_positions = config.anchor_positions
+        self.anchor_distances = {}
+        self.anchor_idx = 0
+        self.anchor_tries_limit = 10
+        self.anchor_tries = 0
+        self.anchor_next = False
 
-    while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
-        updateAnchors()
+        self.trilaterator = Trilaterator()
 
-        if status.getBit(C.RXFCG_BIT):
-            logging.debug("RXFCG")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_RX_GOOD)
+        self.logfile = None
 
-            message = dw1000.getMessage()
-            header = MAC.MACHeader.decode(message)
+        self.cb_rxfcg = self.cb_rxfcg_
+        self.cb_txfrs = self.cb_txfrs_
+        self.cb_rxrfto = self.cb_rxrfto_
+        self.cb_rxerr = self.cb_rxerr_
 
-            if status.getBit(C.AAT_BIT) and header.frameControl.ackRequest == 0:
-                dw1000.clearStatus([C.AAT_BIT])
+        self.cb_irq_while = self.updateAnchors
+        self.cb_reset = self.cb_reset_
 
-            # User code
-            # >>>>>>>>
-            if header.frameControl.frameType == MAC.FT_ACK:
-                time_resp_recv_ts = dw1000.getReceiveTimestamp()
-                Acked += 1
-            else:
-                try:
-                    time_poll_recv_ts, time_resp_send_ts = [int(i) for i in MAC.getPayload(message).decode().split(" ")]
-                    logging.debug("time_poll_recv_ts: {}".format(time_poll_recv_ts))
-                    logging.debug("time_resp_send_ts: {}".format(time_resp_send_ts))
-                    range_ = computeRange()
-                    if range_ > 5000:
-                        logging.error("Invalid range")
-                        anchor_tries += 1
-                        rxrftoCount = 0
-                        dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
-                        logging.debug("RXFCG: Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
-                    else:
-                        logging.debug("Range to {}: {}".format(anchor_list[anchor_idx].hex(), range_))
-                        anchor_distances[anchor_idx] = range_
-                        anchor_next = True
-                        logstring = "{} R {} {:4} {} {} {} {}\n".format(unixTimestamp(), anchor_list[anchor_idx].hex(), range_, time_poll_send_ts, time_poll_recv_ts, time_resp_send_ts, time_resp_recv_ts)
-                        logfile.write(logstring)
-                except:
-                    pass
+    def setup(self):
+        super().setup()
 
-            enableRx = True
-            # <<<<<<<<<
+        self.logfile = open(config.logfile, "a")
 
-            # Switch Host Side Receive Buffer Pointer
-            if dw1000.dblbuffon:
-                dw1000.toggleHSRBP()
+        self.dw1000.syscfg.setBits((C.DIS_STXP_BIT, C.FFEN_BIT, C.FFAA_BIT, C.FFAD_BIT, C.RXWTOE_BIT, C.AAT_BIT, C.RXAUTR_BIT), True)
+        self.dw1000.writeRegister(self.dw1000.syscfg)
 
-        if status.getBit(C.TXFRS_BIT):
-            logging.debug("TXFRS")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_TX)
+        # Set HSRBP to ICRBP for double buffering
+        self.dw1000.disableDoubleBuffer()
 
-            if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
-                dw1000.forceTRxOff()
-                dw1000.rxreset()
+        self.dw1000.setFrameWaitTimeout(65535)
 
-            # User code
-            # >>>>>>>>
-            time_poll_send_ts = dw1000.getTransmitTimestamp()
-            Send += 1
-            # <<<<<<<<
+        # Enable receiver buffer overrun detection, data frame receive, receive frame wait timeout
+        self.dw1000.sysmask.clear()
+        self.dw1000.sysmask.setBits((C.MRXOVRR_BIT, C.MRXFCG_BIT, C.MRXRFTO_BIT, C.MTXFRS_BIT), True)
+        self.dw1000.writeRegister(self.dw1000.sysmask)
 
-        if status.getBitsOr(C.SYS_STATUS_ALL_RX_TO):
-            logging.debug("RXRFTO")
-            dw1000.clearStatus([C.RXRFTO_BIT])
-            dw1000.sysctrl.setBit(C.WAIT4RESP_BIT, False)
+        self.dw1000.clearAllStatus()
 
-            dw1000.forceTRxOff()
-            dw1000.rxreset()
+    def computeRange(self):
+        round_time = self.dw1000.wrapTimestamp(self.time_resp_recv_ts - self.time_poll_send_ts)
+        reply_time = self.dw1000.wrapTimestamp(self.time_resp_send_ts - self.time_poll_recv_ts)
+        tmp_range_ = 0.5 * (round_time - reply_time)
+        return (tmp_range_ % C.TIME_OVERFLOW) * C.DISTANCE_OF_RADIO
 
-            # User code
-            # >>>>>>>>
-            rxrftoCount += 1
-            if rxrftoCount == rxrftoLimit:
-                anchor_tries += 1
-                updateAnchors()
-                dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
-                logging.debug("RXRFTO Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
-            else:
-                dw1000.newReceive()
-                dw1000.startReceive()
-            # <<<<<<<<
+    def updateAnchors(self):
+        if self.anchor_next or self.anchor_tries >= self.anchor_tries_limit:
+            self.anchor_idx = (self.anchor_idx + 1) % len(self.anchor_list)
+            # Calculate position of anchor after trying to measure distance to all anchors
+            if self.anchor_idx == 0:
+                logging.debug("End of round:\nNumber of distances: {}".format(len(self.anchor_distances)))
+                if len(self.anchor_distances) >= 3:
+                    valid_positions = []
+                    valid_distances = []
+                    for k, v in self.anchor_distances.items():
+                        valid_positions.append(self.anchor_positions[k])
+                        valid_distances.append(v)
+                    position = self.trilaterator.trilaterate(valid_positions, valid_distances, valid_positions[0])
+                    logstring = "{} P {:2} {:2} {:2}\n".format(unixTimestamp(), *position)
+                    self.logfile.write(logstring)
+                self.anchor_distances.clear()
+            # Reset number of tries
+            self.anchor_tries = 0
+            self.anchor_next = False
+            self.rxrfto_count = 0
 
-        if status.getBitsOr(C.SYS_STATUS_ALL_RX_ERR):
-            logging.debug("RXERR")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_RX_ERR)
-            dw1000.sysctrl.setBit(C.WAIT4RESP_BIT, False)
+    def cb_rxfcg_(self):
+        if self.header.frameControl.frameType == MAC.FT_ACK:
+            self.time_resp_recv_ts = self.dw1000.getReceiveTimestamp()
+            self.acked += 1
+        else:
+            try:
+                self.time_poll_recv_ts, self.time_resp_send_ts = [int(i) for i in MAC.getPayload(self.message).decode().split(" ")]
+                logging.debug("time_poll_recv_ts: {}".format(self.time_poll_recv_ts))
+                logging.debug("time_resp_send_ts: {}".format(self.time_resp_send_ts))
+                range_ = self.computeRange()
+                # Discard unrealistic values
+                if range_ > 5000:
+                    logging.error("Invalid range")
+                    self.anchor_tries += 1
+                    self.rxrfto_count = 0
+                    self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                    logging.debug("RXFCG: Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
+                else:
+                    logging.debug("Range to {}: {}".format(self.anchor_list[self.anchor_idx].hex(), range_))
+                    self.anchor_distances[self.anchor_idx] = range_
+                    self.anchor_next = True
+                    logstring = "{} R {} {:4} {} {} {} {}\n".format(unixTimestamp(), self.anchor_list[self.anchor_idx].hex(), range_, self.time_poll_send_ts, self.time_poll_recv_ts, self.time_resp_send_ts, self.time_resp_recv_ts)
+                    logfile.write(logstring)
+            except:
+                pass
 
-            dw1000.forceTRxOff()
-            dw1000.rxreset()
+        self.enableRx = True
 
-            # User code
-            # >>>>>>>>
-            anchor_next = True
-            updateAnchors()
-            dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
-            logging.debug("RXERR Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
-            # <<<<<<<<
+    def cb_txfrs_(self):
+        self.time_poll_send_ts = self.dw1000.getTransmitTimestamp()
+        self.send += 1
 
-        timeoutold = datetime.utcnow()
+    def cb_rxrfto_(self):
+        self.rxrfto_count += 1
+        logging.debug(self.rxrfto_count)
+        if self.rxrfto_count >= self.rxrfto_limit:
+            self.anchor_tries += 1
+            self.rxrfto_count = 0
+            self.updateAnchors()
+            self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+            logging.debug("RXRFTO Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
+        else:
+            self.dw1000.newReceive()
+            self.dw1000.startReceive()
 
-        dw1000.readRegister(dw1000.sysstatus)
-        status = copy.deepcopy(dw1000.sysstatus)
+    def cb_rxerr_(self):
+        self.anchor_next = True
+        self.updateAnchors()
+        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+        logging.debug("RXERR Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
 
-    if enableRx:
-        dw1000.newReceive()
-        dw1000.startReceive()
-
-    #dw1000.enableInterrupt()
-
-
-def setup():
-    global dw1000
-    dw1000 = DW1000(PIN_CS, PIN_RST, PIN_IRQ)
-    dw1000.begin()
-    logging.info("DW1000 initialized")
-    logging.info("############### Tag ##############")	
-
-    dw1000.generalConfiguration(EID, PAN, C.MODE_STANDARD)
-    dw1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)
-    dw1000.interruptCallback = interruptCB
-
-    # Enable frame filtering (acknowledge frame), receive frame wait timeout
-    # Disable smart tx power
-    dw1000.syscfg.setBits((C.DIS_STXP_BIT, C.FFEN_BIT, C.FFAA_BIT, C.FFAD_BIT, C.RXWTOE_BIT, C.AAT_BIT, C.RXAUTR_BIT), True)
-    dw1000.writeRegister(dw1000.syscfg)
-
-    # Set HSRBP to ICRBP for double buffering
-    dw1000.disableDoubleBuffer()
-
-    dw1000.setFrameWaitTimeout(65535)
-
-    # Enable receiver buffer overrun detection, data frame receive, receive frame wait timeout
-    dw1000.sysmask.clear()
-    dw1000.sysmask.setBits((C.MRXOVRR_BIT, C.MRXFCG_BIT, C.MRXRFTO_BIT, C.MTXFRS_BIT), True)
-    dw1000.writeRegister(dw1000.sysmask)
-
-    dw1000.clearAllStatus()
-
-    logging.info(dw1000.getDeviceInfoString())
-
+    def cb_reset_(self):
+        self.anchor_tries += 1
+        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+        logging.debug("Timeout Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
 
 def main():
-    global Send, Acked, Timeouts, work, timeout, anchor_tries
+    tag = Tag()
+    tag.setup()
+
+    start = datetime.utcnow()
+
     try:
-        setup()
-        Start = datetime.utcnow()
-        timeoutold = datetime.utcnow()
-
-        while 1:
-            interruptCB()
-
-            timeout = datetime.utcnow()
-
-            dt = timeout - timeoutold
-            if dt > timeoutlimit:
-                anchor_tries += 1
-                dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
-                logging.debug("Timeout Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
-                timeoutold = datetime.utcnow()
-
-
+        tag.run()
     except KeyboardInterrupt:
-        dw1000.stop()
-        End = datetime.utcnow()
+        tag.dw1000.stop()
 
-        delta = End - Start
+    end = datetime.utcnow()
 
-        print("Timedelta: {}\nSend: {}\nAcked: {}\nTimeouts: {}\n".format(delta, Send, Acked, Timeouts))
+    delta = end - start
 
+    logging.info("Timedelta: {}\nSend: {}\nAcked: {}\nTimeouts: {}\n".format(delta, tag.send, tag.acked, tag.timeouts))
 
 if __name__ == "__main__":
-    faulthandler.enable()
     logging.basicConfig(level=logging.DEBUG)
     main()
