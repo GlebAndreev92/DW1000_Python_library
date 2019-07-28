@@ -6,9 +6,9 @@ Requires=multi-user.target network-online.target
 User=pi
 Type=simple
 Restart=always
-SyslogIdentifier=anchor
+SyslogIdentifier=uwb
 WorkingDirectory=/home/pi/DW1000/
-ExecStart=/usr/bin/python3 /home/pi/DW1000/anchor.py
+ExecStart=/usr/bin/python3 /home/pi/DW1000/main.py
 
 [Install]
 WantedBy=multi-user.target
