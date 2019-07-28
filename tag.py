@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timedelta
 import copy
 import faulthandler
+from trilaterate import Trilaterator
 
 PIN_IRQ = 16
 PIN_CS = 8
@@ -17,7 +18,7 @@ PIN_RST = 12
 EID = "7D:00:22:EA:82:60:3B:00"
 PAN = 0xdeca
 dw1000 = None
-
+logfile = open("/home/pi/uwb.log", "a")
 
 Send = 0
 Acked = 0
@@ -36,17 +37,51 @@ timeoutlimit = timedelta(milliseconds=500)
 rxrftoLimit = 10
 rxrftoCount = 0
 
-anchor_list = [b"\x11\x3b"]
+anchor_list = [b"\x0a\x3b", b"\x0b\x3b", b"\x0c\x3b", b"\x0d\x3b"]
+anchor_positions = [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]]
+anchor_distances = {}
+anchor_idx = 0
+anchor_tries = 0
+anchor_tries_limit = 10
+anchor_next = False
+
+trilaterator = Trilaterator()
+
+def unixTimestamp():
+    return datetime.timestamp(datetime.utcnow())
 
 def computeRange():
     roundTime = dw1000.wrapTimestamp(time_resp_recv_ts - time_poll_send_ts)
     replyTime = dw1000.wrapTimestamp(time_resp_send_ts - time_poll_recv_ts)
     timeComputeRangeTs = 0.5 * (roundTime - replyTime)
-    return timeComputeRangeTs * C.DISTANCE_OF_RADIO
+    return (timeComputeRangeTs % C.TIME_OVERFLOW) * C.DISTANCE_OF_RADIO
+
+def updateAnchors():
+    global anchor_list, anchor_distances, anchor_idx, anchor_next, anchor_positions, anchor_tries, anchor_tries_limit, rxrftoCount
+    if anchor_next or anchor_tries >= anchor_tries_limit:
+        anchor_idx = (anchor_idx + 1) % len(anchor_list)
+        # Calculate position of anchor after trying to measure distance to all anchors
+        if anchor_idx == 0:
+            logging.debug("End of round:\nNumber of distances: {}".format(len(anchor_distances)))
+            if len(anchor_distances) >= 3:
+                valid_positions = []
+                valid_distances = []
+                for k, v in anchor_distances.items():
+                    valid_positions.append(anchor_positions[k])
+                    valid_distances.append(v)
+                position = trilaterator.trilaterate(valid_positions, valid_distances, valid_positions[0])
+                logstring = "{} P {:2} {:2} {:2}\n".format(unixTimestamp(), *position)
+                logfile.write(logstring)
+            anchor_distances.clear()
+        # Reset number of tries
+        anchor_tries = 0
+        anchor_next = False
+        rxrftoCount = 0
 
 def interruptCB():
     #dw1000.disableInterrupt()
     global Send, Acked, Timeouts, time_poll_send_ts, time_poll_recv_ts, time_resp_send_ts, time_resp_recv_ts, timeoutold, rxrftoCount, rxrftoLimit
+    global anchor_list, anchor_distances, anchor_idx, anchor_next, anchor_positions, anchor_tries, anchor_tries_limit
 
     enableRx = False
 
@@ -55,23 +90,20 @@ def interruptCB():
     status = copy.deepcopy(dw1000.sysstatus)
 
     while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
+        updateAnchors()
+
         if status.getBit(C.RXFCG_BIT):
             logging.debug("RXFCG")
             dw1000.clearStatus(C.SYS_STATUS_ALL_RX_GOOD)
 
             message = dw1000.getMessage()
             header = MAC.MACHeader.decode(message)
-            try:
-                logging.debug(message[header.dataOffset:-2])
-            except:
-                pass
 
             if status.getBit(C.AAT_BIT) and header.frameControl.ackRequest == 0:
                 dw1000.clearStatus([C.AAT_BIT])
 
             # User code
             # >>>>>>>>
-            logging.debug(message)
             if header.frameControl.frameType == MAC.FT_ACK:
                 time_resp_recv_ts = dw1000.getReceiveTimestamp()
                 Acked += 1
@@ -80,7 +112,19 @@ def interruptCB():
                     time_poll_recv_ts, time_resp_send_ts = [int(i) for i in MAC.getPayload(message).decode().split(" ")]
                     logging.debug("time_poll_recv_ts: {}".format(time_poll_recv_ts))
                     logging.debug("time_resp_send_ts: {}".format(time_resp_send_ts))
-                    logging.debug("Range: {}".format(computeRange()))
+                    range_ = computeRange()
+                    if range_ > 5000:
+                        logging.error("Invalid range")
+                        anchor_tries += 1
+                        rxrftoCount = 0
+                        dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                        logging.debug("RXFCG: Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
+                    else:
+                        logging.debug("Range to {}: {}".format(anchor_list[anchor_idx].hex(), range_))
+                        anchor_distances[anchor_idx] = range_
+                        anchor_next = True
+                        logstring = "{} R {} {:4} {} {} {} {}\n".format(unixTimestamp(), anchor_list[anchor_idx].hex(), range_, time_poll_send_ts, time_poll_recv_ts, time_resp_send_ts, time_resp_recv_ts)
+                        logfile.write(logstring)
                 except:
                     pass
 
@@ -117,8 +161,10 @@ def interruptCB():
             # >>>>>>>>
             rxrftoCount += 1
             if rxrftoCount == rxrftoLimit:
-                dw1000.sendMessage(b"\x11\x3b", b"\xca\xde", b"", ackReq=True, wait4resp=True)
-                rxrftoCount = 0
+                anchor_tries += 1
+                updateAnchors()
+                dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                logging.debug("RXRFTO Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
             else:
                 dw1000.newReceive()
                 dw1000.startReceive()
@@ -134,7 +180,10 @@ def interruptCB():
 
             # User code
             # >>>>>>>>
-            dw1000.sendMessage(b"\x11\x3b", b"\xca\xde", b"", ackReq=True, wait4resp=True)
+            anchor_next = True
+            updateAnchors()
+            dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+            logging.debug("RXERR Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
             # <<<<<<<<
 
         timeoutold = datetime.utcnow()
@@ -181,7 +230,7 @@ def setup():
 
 
 def main():
-    global Send, Acked, Timeouts, work, timeout
+    global Send, Acked, Timeouts, work, timeout, anchor_tries
     try:
         setup()
         Start = datetime.utcnow()
@@ -194,7 +243,9 @@ def main():
 
             dt = timeout - timeoutold
             if dt > timeoutlimit:
-                dw1000.sendMessage(b"\x11\x3b", b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                anchor_tries += 1
+                dw1000.sendMessage(anchor_list[anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                logging.debug("Timeout Started ranging to {} with try {}".format(anchor_list[anchor_idx].hex(), anchor_tries))
                 timeoutold = datetime.utcnow()
 
 
