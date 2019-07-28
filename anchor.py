@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 PIN_IRQ = 16
 PIN_CS = 8
 PIN_RST = 12
-EID = "7D:00:22:EA:82:60:3B:11"
+EID = "7D:00:22:EA:82:60:3B:0A"
 PAN = 0xdeca
 dw1000 = None
 
@@ -24,9 +24,9 @@ address = 0
 
 sendTS = False
 
-timeout = datetime.utcnow()
-timeoutold = datetime.utcnow()
-timeoutlimit = timedelta(milliseconds=500)
+timeout = time.monotonic()
+timeoutold = time.monotonic()
+timeoutlimit = 0.5
 
 def interruptCB():
     global replyTime, timeRecv, address, sendTS, timeoutold
@@ -67,8 +67,8 @@ def interruptCB():
             enableRx = True
 
             if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
-                #dw1000.forceTRxOff()
-                #dw1000.rxreset()
+                dw1000.forceTRxOff()
+                dw1000.rxreset()
                 enableRx = True
 
             # User code
@@ -111,7 +111,7 @@ def interruptCB():
         dw1000.readRegister(dw1000.sysstatus)
         status = copy.deepcopy(dw1000.sysstatus)
 
-        timeoutold = datetime.now()
+        timeoutold = time.monotonic()
 
     if enableRx:
         dw1000.newReceive()
@@ -149,6 +149,7 @@ def setup():
 
 
 def main():
+    global timeoutold
     try:
         setup()
         dw1000.newReceive()
@@ -157,11 +158,15 @@ def main():
         while 1:
             interruptCB()
 
+            timeout = time.monotonic()
             dt = timeout - timeoutold
             if dt > timeoutlimit:
+                logging.error("Reset inactive")
+                dw1000.rxreset()
                 dw1000.idle()
                 dw1000.newReceive()
                 dw1000.startReceive()
+                timeoutold = timeout
 
     except KeyboardInterrupt:
         dw1000.stop()
