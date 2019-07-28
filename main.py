@@ -10,6 +10,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
     try:
-        modes[config.mode]
+        modes[config.mode]()
     except KeyError:
         logging.error("Unknown mode: {}".format(config.mode))
