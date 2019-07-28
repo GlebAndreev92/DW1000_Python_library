@@ -1,178 +1,83 @@
-"""
-This python script uses the DW1000 as a sniffer device
+"""@package docstring
+Anchor part of SS-TWR system.
+
+This module provides an anchor class that receives and answers to tag poll messages.
 """
 
-from DW1000 import DW1000
-import time
-import DW1000Constants as C
-import MAC
 import logging
-import copy
-import faulthandler
-from datetime import datetime, timedelta
 
-PIN_IRQ = 16
-PIN_CS = 8
-PIN_RST = 12
-EID = "7D:00:22:EA:82:60:3B:0A"
-PAN = 0xdeca
-dw1000 = None
+import node
+import DW1000Constants as C
 
-replyTime = 0
-timeRecv = 0
-address = 0
+class Anchor(node.Node):
+    def __init__(self):
+        super().__init__()
 
-sendTS = False
+        self.time_recv = 0 # Timestamp of receiving poll message
+        self.address = 0 # TODO: Use this field to store address of last message sender
 
-timeout = time.monotonic()
-timeoutold = time.monotonic()
-timeoutlimit = 0.5
+        # Callbacks, see interruptCB
+        self.cb_rxfcg = self.cb_rxfcg_
+        self.cb_txfrs = self.cb_txfrs_
+        self.cb_rxrfto = self.cb_rxrfto_
+        self.cb_rxerr = self.cb_rxerr_
 
-def interruptCB():
-    global replyTime, timeRecv, address, sendTS, timeoutold
+        self.cb_reset = self.cb_reset_
 
-    enableRx = False
+    def setup(self):
+        """ Anchor setup 
 
-    # First read sysstatus and copy it
-    dw1000.readRegister(dw1000.sysstatus)
-    status = copy.deepcopy(dw1000.sysstatus)
+        Call after creation of a anchor. Set sysctrl and sysmask of DW1000.
+        """
+        super().setup()
 
-    while(status.getBitsOr(C.SYS_STATUS_ALL_TX + C.SYS_STATUS_ALL_RX_TO + C.SYS_STATUS_ALL_RX_GOOD + C.SYS_STATUS_ALL_RX_ERR)):
+        self.dw1000.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT, C.FFEN_BIT, C.FFAD_BIT, C.AUTOACK_BIT), True)
+        self.dw1000.writeRegister(self.dw1000.syscfg)
 
-        if status.getBit(C.RXFCG_BIT):
-            logging.debug("RXFCG")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_RX_GOOD)
+        self.dw1000.enableDoubleBuffer()
 
-            message = dw1000.getMessage()
-            header = MAC.MACHeader.decode(message)
+        self.dw1000.sysmask.clear()
+        self.dw1000.sysmask.setBits((C.MRXOVRR_BIT, C.MRXFCG_BIT, C.MTXFRS_BIT, C.MAAT_BIT), True)
+        self.dw1000.writeRegister(self.dw1000.sysmask)
 
-            if status.getBit(C.AAT_BIT) and header.frameControl.ackRequest == 0:
-                dw1000.clearStatus([C.AAT_BIT])
-                enableRx = True
+        self.dw1000.clearAllStatus()
 
-            # User code
-            # >>>>>>>>
-            #logging.debug(header)
-            #logging.debug(message)
-            timeRecv = dw1000.getReceiveTimestamp()
-            #address = header.srcAddr
-            # <<<<<<<<<
+    def cb_rxfcg_(self):
+        """ Custom rxfcg callback """
+        self.time_recv = self.dw1000.getReceiveTimestamp()
 
-            # Switch Host Side Receive Buffer Pointer
-            dw1000.toggleHSRBP()
+    def cb_txfrs_(self):
+        """ Custom txfrs callback """
+        if self.status.getBit(C.AAT_BIT):
+            time_send = self.dw1000.getTransmitTimestamp()
+            reply_time = self.dw1000.wrapTimestamp(time_send - self.time_recv)
+            logging.debug("Sending reply time {}".format(reply_time))
+            self.dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", (str(self.time_recv)+ " " + str(time_send)).encode(), ackReq=False, wait4resp=True, delay=0)
+            self.enableRx=False
 
-        if status.getBit(C.TXFRS_BIT):
-            logging.debug("TXFRS")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_TX)
-            enableRx = True
+    def cb_rxrfto_(self):
+        """ Custom rxrfto callback """
+        self.enableRx = True
 
-            if status.getBit(C.AAT_BIT) and dw1000.sysctrl.getBit(C.WAIT4RESP_BIT):
-                dw1000.forceTRxOff()
-                dw1000.rxreset()
-                enableRx = True
+    def cb_rxerr_(self):
+        """ Custom rxerr callback """
+        self.enableRx = True
 
-            # User code
-            # >>>>>>>>
-            if status.getBit(C.AAT_BIT):
-                timeSend = dw1000.getTransmitTimestamp()
-                replyTime = dw1000.wrapTimestamp(timeSend - timeRecv)
-                logging.debug("Sending reply time {}".format(replyTime))
-                dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", (str(timeRecv)+ " " + str(timeSend)).encode(), ackReq=False, wait4resp=True, delay=0)
-                enableRx=False
-            # <<<<<<<<
-            
-
-        if status.getBitsOr(C.SYS_STATUS_ALL_RX_TO):
-            logging.debug("RXRFTO")
-            dw1000.clearStatus([C.RXRFTO_BIT])
-            dw1000.sysctrl.setBit(C.WAIT4RESP_BIT, False)
-
-            dw1000.forceTRxOff()
-            dw1000.rxreset()
-
-            # User code
-            # >>>>>>>>
-            enableRx = True
-            # <<<<<<<<
-
-        if status.getBitsOr(C.SYS_STATUS_ALL_RX_ERR):
-            logging.debug("RXERR")
-            dw1000.clearStatus(C.SYS_STATUS_ALL_RX_ERR)
-            dw1000.sysctrl.setBit(C.WAIT4RESP_BIT, False)
-
-            dw1000.forceTRxOff()
-            dw1000.rxreset()
-
-            # User code
-            # >>>>>>>>
-            enableRx = True
-            # <<<<<<<<
-
-        dw1000.readRegister(dw1000.sysstatus)
-        status = copy.deepcopy(dw1000.sysstatus)
-
-        timeoutold = time.monotonic()
-
-    if enableRx:
-        dw1000.newReceive()
-        dw1000.startReceive()
-
-
-def setup():
-    global dw1000
-    dw1000 = DW1000(PIN_CS, PIN_RST, PIN_IRQ)
-    dw1000.begin()
-    logging.info("DW1000 initialized")
-    logging.info("############### Anchor ##############")	
-
-    dw1000.generalConfiguration(EID, PAN, C.MODE_STANDARD)
-    dw1000.setAntennaDelay(C.ANTENNA_DELAY_RASPI)
-    dw1000.interruptCallback = interruptCB
-
-    # Enable automatic rx reenable, frame filtering (data frame), auto acknowledge
-    # Disable smart tx power
-    dw1000.syscfg.setBits((C.DIS_STXP_BIT, C.RXAUTR_BIT, C.FFEN_BIT, C.FFAD_BIT, C.AUTOACK_BIT), True)
-    dw1000.writeRegister(dw1000.syscfg)
-
-    # Set HSRBP to ICRBP for double buffering
-    #dw1000.disableDoubleBuffer()
-    dw1000.enableDoubleBuffer()
-
-    # Enable receiver buffer overrun detection, data frame receive
-    dw1000.sysmask.clear()
-    dw1000.sysmask.setBits((C.MRXOVRR_BIT, C.MRXFCG_BIT, C.MTXFRS_BIT, C.MAAT_BIT), True)
-    dw1000.writeRegister(dw1000.sysmask)
-
-    dw1000.clearAllStatus()
-
-    logging.info(dw1000.getDeviceInfoString())
-
+    def cb_reset_(self):
+        """ Custom reset callback """
+        self.dw1000.rxreset()
+        self.dw1000.idle()
+        self.dw1000.newReceive()
+        self.dw1000.startReceive()
 
 def main():
-    global timeoutold
+    anchor = Anchor()
+    anchor.setup()
+
     try:
-        setup()
-        dw1000.newReceive()
-        dw1000.startReceive()
-
-        while 1:
-            interruptCB()
-
-            timeout = time.monotonic()
-            dt = timeout - timeoutold
-            if dt > timeoutlimit:
-                logging.error("Reset inactive")
-                dw1000.rxreset()
-                dw1000.idle()
-                dw1000.newReceive()
-                dw1000.startReceive()
-                timeoutold = timeout
-
+        anchor.run()
     except KeyboardInterrupt:
-        dw1000.stop()
-
+        anchor.dw1000.stop()
 
 if __name__ == "__main__":
-    faulthandler.enable()
-    logging.basicConfig(level=logging.DEBUG)
     main()
