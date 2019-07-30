@@ -1,4 +1,4 @@
-"""@package docstring
+"""@package tag
 Tag part of SS-TWR system.
 
 This module provides a tag class that ranges to some anchors.
@@ -7,6 +7,8 @@ The anchors are specified in the config module (config.py).
 
 import logging
 from datetime import datetime
+from threading import Thread, Lock
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import node
 import DW1000Constants as C
@@ -14,17 +16,68 @@ from trilaterate import Trilaterator
 import config
 import MAC
 
+page = (""
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<meta charset=\"UTF-8\">"
+        "<meta http-equiv=\"refresh\" content=\"1\">"
+        "</head>"
+        "<body>"
+        "<canvas id=\"uwbmap\" width=\"{}\" height=\"{}\"></canvas>"
+        "<script>"
+        "var c = document.getElementById(\"uwbmap\");"
+        "var ctx = c.getContext(\"2d\");"
+        "ctx.fillStyle = \"#000000\";"
+        "ctx.fillRect({}, {}, 16, 16);"
+        "ctx.fillRect({}, {}, 16, 16);"
+        "ctx.fillRect({}, {}, 16, 16);"
+        "ctx.fillRect({}, {}, 16, 16);"
+        "ctx.fillStyle = \"#FF0000\";"
+        "ctx.fillRect({}, {}, 16, 16);"
+        "</script>"
+        "</body>"
+        "</html>"
+        "")
+
 def unixTimestamp():
-    """ Get a unix timestamp 
+    """
+    Get a unix timestamp 
 
     The timestamp is returned as floating point with whole seconds before the comma.
 
-    Return:
+    Returns:
         (float): Timestamp
     """
     return datetime.timestamp(datetime.utcnow())
 
 class Tag(node.Node):
+    """
+    Tag class.
+
+    Attributes:
+        send: Number of send poll frames
+        acked: Number of acked poll frames
+        time_poll_send_ts: Timestamp of poll sending
+        time_poll_recv_ts: Timestamp of poll receiving
+        time_resp_send_ts: Timestamp of response sending
+        time_resp_recv_ts: Timestamp of response receiving
+        rxrfto_limit: Maximum number of receiver timeouts before a new poll frame is send
+        rxrfto_count: Current number of receiver timeouts
+        anchor_list: List of anchors used for ranging
+        anchor_positions: List of anchor positions
+        anchor_distances: Stores distances to anchors, cleared after each round
+        anchor_idx: Index of current ranging anchor
+        anchor_tries_limit: Maximum number of poll messages per anchor in one round
+        anchor_tries: Current number of poll message to the current ranging anchor
+        anchor_next: Flag signaling change to next anchor
+        trilaterator: Trilaterator object for position calculation
+        logfile: Logfile path
+        http_thread: Thread handle for the web visualization server
+        httpd: Web server
+        http_position: Position that is published to the client
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -61,6 +114,10 @@ class Tag(node.Node):
         self.cb_irq_while = self.updateAnchors
         self.cb_reset = self.cb_reset_
 
+        self.http_thread = None
+        self.httpd = None
+        self.http_position = [0., 0., 0.]
+
     def setup(self):
         """ Tag setup 
 
@@ -76,7 +133,7 @@ class Tag(node.Node):
         # Set HSRBP to ICRBP for double buffering
         self.dw1000.disableDoubleBuffer()
 
-        self.dw1000.setFrameWaitTimeout(65535)
+        self.dw1000.setFrameWaitTimeout(40000)
 
         # Enable receiver buffer overrun detection, data frame receive, receive frame wait timeout
         self.dw1000.sysmask.clear()
@@ -84,6 +141,20 @@ class Tag(node.Node):
         self.dw1000.writeRegister(self.dw1000.sysmask)
 
         self.dw1000.clearAllStatus()
+
+        if config.webui_enable:
+            self.http_thread = Thread(target=self.webserveFunc)
+            self.http_thread.start()
+
+    def stop(self):
+        super().stop()
+
+        # Shutdown server
+        if self.http_thread and self.http_thread.is_alive():
+            self.httpd.shutdown_request(None)
+            self.httpd.shutdown()
+            self.httpd.socket.close()
+            self.http_thread.join()
 
     def computeRange(self):
         """ Calculate range using single sided two way ranging method
@@ -118,6 +189,7 @@ class Tag(node.Node):
                         valid_distances.append(v)
                     # Calculate position
                     position = self.trilaterator.trilaterate(valid_positions, valid_distances, valid_positions[0])
+                    self.http_position = position
                     logstring = "{} P {:2} {:2} {:2}\n".format(unixTimestamp(), *position)
                     self.logfile.write(logstring)
                 self.anchor_distances.clear()
@@ -142,7 +214,7 @@ class Tag(node.Node):
                     logging.error("Invalid range")
                     self.anchor_tries += 1
                     self.rxrfto_count = 0
-                    self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+                    self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], config.pan.to_bytes(2, byteorder="little"), b"", ackReq=True, wait4resp=True)
                     logging.debug("RXFCG: Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
                 else:
                     logging.debug("Range to {}: {}".format(self.anchor_list[self.anchor_idx].hex(), range_))
@@ -163,12 +235,11 @@ class Tag(node.Node):
     def cb_rxrfto_(self):
         """ Custom rxrfto callback """
         self.rxrfto_count += 1
-        logging.debug(self.rxrfto_count)
         if self.rxrfto_count >= self.rxrfto_limit:
             self.anchor_tries += 1
             self.rxrfto_count = 0
             self.updateAnchors()
-            self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+            self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], config.pan.to_bytes(2, byteorder="little"), b"", ackReq=True, wait4resp=True)
             logging.debug("RXRFTO Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
         else:
             self.dw1000.newReceive()
@@ -178,14 +249,59 @@ class Tag(node.Node):
         """ Custom rxerr callback """
         self.anchor_next = True
         self.updateAnchors()
-        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], config.pan.to_bytes(2, byteorder="little"), b"", ackReq=True, wait4resp=True)
         logging.debug("RXERR Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
 
     def cb_reset_(self):
         """ Custom reset callback """
         self.anchor_tries += 1
-        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], b"\xca\xde", b"", ackReq=True, wait4resp=True)
+        self.dw1000.sendMessage(self.anchor_list[self.anchor_idx], config.pan.to_bytes(2, byteorder="little"), b"", ackReq=True, wait4resp=True)
         logging.debug("Timeout Started ranging to {} with try {}".format(self.anchor_list[self.anchor_idx].hex(), self.anchor_tries))
+
+    class TagHTTPRequestHandler(BaseHTTPRequestHandler):
+        outer = None
+
+        def do_GET(self):
+            global page
+
+            width = 800
+            height = 800
+
+            min_x = float(min([i[0] for i in config.anchor_positions] + [self.outer.http_position[0]])) - .5
+            min_y = float(min([i[1] for i in config.anchor_positions] + [self.outer.http_position[1]])) - .5
+            max_x = float(max([i[0] for i in config.anchor_positions] + [self.outer.http_position[0]])) + .5
+            max_y = float(max([i[1] for i in config.anchor_positions] + [self.outer.http_position[1]])) + .5
+
+            width_m = max_x - min_x
+            height_m = max_y - min_y
+
+            anchor1_x = ((config.anchor_positions[0][0] - min_x) / width_m) * width
+            anchor1_y = ((config.anchor_positions[0][1] - min_y) / height_m) * height
+            anchor2_x = ((config.anchor_positions[1][0] - min_x) / width_m) * width
+            anchor2_y = ((config.anchor_positions[1][1] - min_y) / height_m) * height
+            anchor3_x = ((config.anchor_positions[2][0] - min_x) / width_m) * width
+            anchor3_y = ((config.anchor_positions[2][1] - min_y) / height_m) * height
+            anchor4_x = ((config.anchor_positions[3][0] - min_x) / width_m) * width
+            anchor4_y = ((config.anchor_positions[3][1] - min_y) / height_m) * height
+            tag_x = ((self.outer.http_position[0] - min_x) / width_m) * width
+            tag_y = ((self.outer.http_position[1] - min_y) / height_m) * height
+
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(page.format(width, height,
+                                         anchor1_x, anchor1_y,
+                                         anchor2_x, anchor2_y,
+                                         anchor3_x, anchor3_y,
+                                         anchor4_x, anchor4_y,
+                                         tag_x, tag_y).encode())
+
+    def webserveFunc(self):
+        logging.debug("Starting web server")
+        req_handler = self.TagHTTPRequestHandler
+        req_handler.outer = self
+        self.httpd = HTTPServer(('', 8080), req_handler)
+        self.httpd.serve_forever()
+        logging.debug("Stopped web server")
 
 def main():
     tag = Tag()

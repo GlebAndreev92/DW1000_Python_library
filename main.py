@@ -1,3 +1,11 @@
+"""@package main
+Main module responsible for startup.
+
+This module reads the mode variable from config and
+starts the responsible module.
+It also sets the logging level for the application.
+"""
+
 import logging
 
 import config

@@ -1,32 +1,63 @@
-"""
-This python module contains low-level functions to interact with the DW1000 chip using a Raspberry Pi 3. It requires the following modules: 
-math, time, spidev, Rpi.GPIO, random.
+"""@package DW1000
+This python module contains low-level functions to interact with the DW1000 chip using a Raspberry Pi 3.
 """
 
 import time
 import math
-from random import randint
+from random import randrange
 import spidev
 import RPi.GPIO as GPIO
-import DW1000Constants as C
-import ctypes
 import logging
+import copy
+
+import DW1000Constants as C
 from DW1000Register import DW1000Register
 import MAC
 from Helper import convertStringToByte, writeValueToBytes
-from random import randrange
-import copy
 
 GPIO.setwarnings(False)
 
-"""
-DW1000 general configuration.
-"""
-
 class DW1000:
+    """
+    DW1000 management class.
+
+    Provides all functionality to a client to send/receive messages and perform ranging.
+
+    Args:
+        cs: Chip select pin number
+        rst: Reset pin number
+        irq: Interrupt pin number
+
+    Attributes:
+        cs: Chip select pin
+        rst: Reset pin
+        irq: Interrupt pin
+        spi: SPI device
+        dblbuffon (bool): Double buffer state (enabled/disabled)
+        sysctrl (DW1000Register): DW1000 system control register
+        chanctrl (DW1000Register): DW1000 channel control register
+        syscfg (DW1000Register): DW1000 system config register
+        sysmask (DW1000Register): DW1000 system mask register (mask interrupts)
+        txfctrl (DW1000Register): DW1000 transmission framce control register
+        sysstatus (DW1000Register): DW1000 system status register
+        gpiomode (DW1000Register): DW1000 gpio mode register, used to enable leds
+        pmscctrl0 (DW1000Register): DW1000 pmscctrl0 register
+        pmscledc (DW1000Register): DW1000 led control register, used to control leds
+        otpctrl (DW1000Register): DW1000 otpctrl register
+        panadr (DW1000Register): DW1000 private area network address register
+        eui (DW1000Register): DW1000 extended unique identifer register
+        ackrespt (DW1000Register): DW1000 ackrept register
+        rxfinfo (DW1000Register): DW1000 received frame information
+        seqNum: Track sequence numbers of send frames (increase after send)
+        operationMode: Mode of operation
+        permanentReceive (bool): Enable/disable permanent receiver
+        extendedAddress: Long form address of DW1000
+        shortAddress: Short form address, extracted last 2 bytes from extendedAddress
+        interruptCallback: Function to call on interrupt receiption
+    """
     def __init__(self, cs, rst, irq):
-        self.cs = cs
-        self.rst = rst
+        self.cs = cs #: Test
+        self.rst = rst # Test2
         self.irq = irq
 
         self.spi = None
@@ -46,6 +77,7 @@ class DW1000:
         self.panadr = DW1000Register(C.PANADR, C.NO_SUB, 4)
         self.eui = DW1000Register(C.EUI, C.NO_SUB, 8)
         self.ackrespt = DW1000Register(C.ACK_RESP_T, C.NO_SUB, 4)
+        self.rxfinfo = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
 
         self.seqNum = randrange(0, 256) # Sequence number for transmitted frames | hashmap and per connection number?
 
@@ -60,6 +92,11 @@ class DW1000:
 
 
     def begin(self):
+        """
+        Perform setup of DW1000.
+
+        Initialize GPIO on Host, establish SPI connection and initialize the DWM1000.
+        """
         GPIO.setmode(GPIO.BCM)
 
         # Reset to ensure correct operation of module
@@ -107,6 +144,11 @@ class DW1000:
 
 
     def stop(self):
+        """
+        Break down connection to DWM1000
+
+        Release resources (GPIO, SPI).
+        """
         self.disableInterrupt()
         GPIO.setup(self.rst, GPIO.OUT, initial=GPIO.LOW)
         time.sleep(0.1)
@@ -117,7 +159,7 @@ class DW1000:
 
     def hardReset(self):
         """
-        This function resets the DW1000 module
+        Reset the DWM1000 by driving the reset line low for a short time.
         """
         # Low for 100ms for reset
         GPIO.setup(self.rst, GPIO.OUT, initial=GPIO.LOW)
@@ -142,6 +184,9 @@ class DW1000:
 
 
     def enableLeds(self):
+        """
+        Enable all 4 led outputs.
+        """
         self.gpiomode.clear()
         self.gpiomode.setBits((6, 8, 10, 12), True)
         self.writeRegister(self.gpiomode)
@@ -155,14 +200,34 @@ class DW1000:
 
 
     def readRegister(self, reg):
+        """
+        Get register content from DWM1000.
+
+        This function takes a register control structure and reads the contents on the DWM1000
+        into the host local buffer.
+
+        Args:
+            reg (DW1000Register): Register to read
+        """
         self.readBytes(reg.address, reg.subaddress, reg.data, reg.size)
 
 
     def writeRegister(self, reg):
+        """
+        Set register content on DWM1000.
+
+        This function takes a register control structure and writes the contents to the DWM1000.
+
+        Args:
+            reg (DW1000Register): Register to write
+        """
         self.writeBytes(reg.address, reg.subaddress, reg.data, reg.size)
 
 
     def toggleHSRBP(self):
+        """
+        Toggle host side receive buffer pointer.
+        """
         if self.dblbuffon:
             # Save interrupt mask and change HRBPT bits
             oldmask = self.sysmask.data.copy()
@@ -179,6 +244,9 @@ class DW1000:
 
 
     def syncHSRBP(self):
+        """
+        Synchronize host side receive buffer pointer to ic side receive buffer pointer.
+        """
         self.readRegister(self.sysstatus)
         hsrbp = self.sysstatus.getBit(C.HSRBP_BIT)
         icrbp = self.sysstatus.getBit(C.ICRBP_BIT)
@@ -187,6 +255,9 @@ class DW1000:
 
 
     def forceTRxOff(self):
+        """
+        Force shutdown transmitte/receiver.
+        """
         self.readRegister(self.sysmask)
         mask = copy.copy(self.sysmask.data)
 
@@ -220,14 +291,14 @@ class DW1000:
             GPIO.add_event_detect(self.irq, GPIO.RISING, callback=self.handleInterrupt)
         except:
             logging.error("Failed to enable interrupt!")
-    
+
     def enableDoubleBuffer(self):
         self.dblbuffon = True
         self.syncHSRBP()
         self.syscfg.setBit(C.HSRBP_BIT, True)
         self.writeRegister(self.syscfg)
 
-    
+
     def disableDoubleBuffer(self):
         self.dblbuffon = False
         self.syncHSRBP()
@@ -241,6 +312,15 @@ class DW1000:
 
 
     def readBytes(self, cmd, offset, data, n):
+        """
+        This function reads n bytes from the specified register to the array data.
+
+        Args:
+            cmd: Address of register to read
+            offset: Offset inside the register
+            data: Array for the data to be stored in
+            n: Number of bytes to read
+        """
         header = bytearray(3)
         headerLen = 1
 
@@ -274,13 +354,13 @@ class DW1000:
 
     def writeBytes(self, cmd, offset, data, dataSize):
         """
-        This function writes n bytes from the specified array to the register given as a parameter and with an offset value.
+        This function writes dataSize bytes from the specified array to the register.
 
         Args:
-                cmd: The address of the register you want to write into.
-                offset: The offset for the register.
-                data: The array containing the data you want written.
-                dataSize: The number of bytes you want to write into the register.
+            cmd: Address of register to write
+            offset: Offset inside the register
+            data: Array for the data to be written
+            dataSize: Number of bytes to write
         """
         header = bytearray(3)
         headerLen = 1
@@ -316,10 +396,10 @@ class DW1000:
         This function manages the dw1000 chip's clock by setting up the proper registers to activate the specified clock mode chosen.
 
         Args:
-                clock: An hex value corresponding to the clock mode wanted:
-                    AUTO=0x00
-                    XTI=0x01
-                    PLL=0X02.
+            clock: An hex value corresponding to the clock mode wanted:
+                AUTO=0x00
+                XTI=0x01
+                PLL=0X02.
         """
         self.readRegister(self.pmscctrl0)
         if clock == C.AUTO_CLOCK:
@@ -332,6 +412,14 @@ class DW1000:
 
 
     def getStatusRegisterString(self):
+        """
+        For debugging purposes.
+
+        Create and return a string with all the information inside the status register.
+
+        Returns:
+            (string): Human readable string of status register contents
+        """
         statusstr = ""
 
         statusstr += "System status bits:\n"
@@ -385,6 +473,9 @@ class DW1000:
     def handleInterrupt(self, channel):
         """
         Callback invoked on the rising edge of the interrupt pin. Handle the configured interruptions.
+
+        Args:
+            channel: Unused
         """
         logging.debug("Interrupt received")
         if callable(self.interruptCallback):
@@ -393,7 +484,7 @@ class DW1000:
 
     def manageLDE(self):
         """
-        This function manages the LDE micro-code. It is to setup the power management and system control unit as well as the OTP memory interface. 
+        This function manages the LDE micro-code. It is to setup the power management and system control unit as well as the OTP memory interface.
         This is necessary as part of the DW1000 initialisation, since it is important to get timestamp and diagnostic info from received frames.
         """
         self.readRegister(self.pmscctrl0)
@@ -419,10 +510,13 @@ class DW1000:
     def enableMode(self, mode):
         """
         This function configures the DW1000 chip to perform with a specific mode. It sets up the TRX rate the TX pulse frequency and the preamble length.
+
+        Args:
+            mode (list): Mode from DW1000Constants
         """
         # setDataRate
         self.setDataRate(mode[C.DATA_RATE_BIT])
-        
+
         # setPulseFreq
         self.setPulseFreq(mode[C.PULSE_FREQUENCY_BIT])
 
@@ -479,7 +573,7 @@ class DW1000:
         This function sets the DW1000 chip's antenna delay value which needs to be calibrated to have better ranging accuracy.
 
         Args:
-                val : The antenna delay value which will be configured into the chip.
+            val: The antenna delay value which will be configured into the chip.
         """
         antennaDelayBytes = bytearray(5)
         writeValueToBytes(antennaDelayBytes, val, 5)
@@ -492,7 +586,7 @@ class DW1000:
         This function sets the extended unique identifier of the chip according to the value specified by the user in setup.
 
         Args:
-                currentAddress : the array of bytes containing the EUI
+            currentAddress (bytes): The new EUI
         """
         for i in range(0, 8):
             self.eui[i] = currentAddress[8 - i - 1]
@@ -501,10 +595,10 @@ class DW1000:
 
     def setDeviceAddress(self, value):
         """
-        This function sets the device's address according to the specified value.
+        This function sets the device's short address according to the specified value.
 
         Args:
-                value : The address you want to set to the chip.
+            value (bytes): The address you want to set to the chip.
         """
         self.panadr[0] = value & C.MASK_LS_BYTE
         self.panadr[1] = (value >> 8) & C.MASK_LS_BYTE
@@ -515,13 +609,21 @@ class DW1000:
         This function sets the device's network ID according to the specified value.
 
         Args:
-                value : The network id you want to assign to the chip.
+            value: The network id you want to assign to the chip.
         """
         self.panadr[2] = value & C.MASK_LS_BYTE
         self.panadr[3] = (value >> 8) & C.MASK_LS_BYTE
 
 
     def setDataRate(self, rate):
+        """
+        This function set the data rate.
+
+        See DW1000Constants for valid data rates.
+
+        Args:
+            rate: Speed of the module
+        """
         rate = rate & C.MASK_LS_2BITS
         self.txfctrl[1] = self.txfctrl[1] & C.ENABLE_MODE_MASK1
         self.txfctrl[1] = self.txfctrl[1] | ((rate << 5) & C.MASK_LS_BYTE)
@@ -546,8 +648,14 @@ class DW1000:
         self.writeBytes(C.USR_SFD, C.SFD_LENGTH_SUB, sfdLength, 1)
         self.operationMode[C.DATA_RATE_BIT] = rate
 
-    
+
     def setPulseFreq(self, freq):
+        """
+        This function sets the pulse frequency.
+
+        Args:
+            freq: Frequency identifer from DW1000Constants
+        """
         freq = freq & C.MASK_LS_2BITS
         self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK2
         self.txfctrl[2] = self.txfctrl[2] | (freq & C.MASK_LS_BYTE)
@@ -557,6 +665,12 @@ class DW1000:
 
 
     def setPreambleLength(self, prealen):
+        """
+        This function sets the preamble length.
+
+        Args:
+            prealen: Prealen identifer from DW1000Constants
+        """
         prealen = prealen & C.MASK_NIBBLE
         self.txfctrl[2] = self.txfctrl[2] & C.ENABLE_MODE_MASK4
         self.txfctrl[2] = self.txfctrl[2] | ((prealen << 2) & C.MASK_LS_BYTE)
@@ -568,7 +682,7 @@ class DW1000:
         This function configures the DW1000 chip to enable a the specified channel of operation.
 
         Args:
-                channel : The channel value you want to assign to the chip.
+            channel: The channel value you want to assign to the chip.
         """
         channel = channel & C.MASK_NIBBLE
         self.chanctrl[0] = ((channel | (channel << 4)) & C.MASK_LS_BYTE)
@@ -580,7 +694,7 @@ class DW1000:
         This function sets the preamble code used for the frames, depending on the the pulse repetition frequency and the channel used.
 
         Args:
-                preacode : The preamble code type you want to assign to the chip.
+            preacode: The preamble code type you want to assign to the chip.
         """
         preacode = preacode & C.PREACODE_MASK1
         self.chanctrl[2] = self.chanctrl[2] & C.PREACODE_MASK2
@@ -596,7 +710,7 @@ class DW1000:
         self.ackrespt[3] = value
         self.writeRegister(self.ackrespt)
 
-    
+
     def setW4RTim(self, value):
         self.readRegister(self.ackrespt)
         self.ackrespt[2] = 0x0F & (value >> 16)
@@ -687,7 +801,9 @@ class DW1000:
         configured device.
 
         Args:
-                address: The string address you want to set the device to.
+            address (bytes): The eui address you want to set the device to.
+            pan (bytes): The pan address you want to set the device to.
+            mode (bytes): Operation mode identifer from DW1000Constants
         """
         currentAddress = convertStringToByte(address)
         currentShortAddress = currentAddress[-2:]
@@ -718,7 +834,7 @@ class DW1000:
         self.readRegister(self.panadr)
         devinfostr += "\nDevice ID {:02X} - model: {}, version: {}, revision: {}\n".format(
             (devid[3] << 8) | devid[2], (devid[1]), (devid[0] >> 4) & C.MASK_NIBBLE, devid[0] & C.MASK_NIBBLE)
-        devinfostr += "Unique ID: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n".format( 
+        devinfostr += "Unique ID: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n".format(
             *(reversed([eui for eui in self.eui])))
         devinfostr += "Network ID & Device Address: PAN: {:02X}, Short Address: {:02X}\n".format(
             ((self.panadr[3] << 8) | self.panadr[2]), ((self.panadr[1] << 8) | self.panadr[0]))
@@ -738,7 +854,7 @@ class DW1000:
         This function fills the array for the tuning of agctune1 according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for agctune1.
+            agctune1 (DW1000Register): Register which will store the correct values for agctune1.
 
         """
         pulseFrequency = self.operationMode[C.PULSE_FREQUENCY_BIT]
@@ -753,7 +869,7 @@ class DW1000:
         This function fills the array for the tuning of drxtune0b according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for drxtune0b.
+            drxtune0b (DW1000Register): Register which will store the correct values for drxtune0b.
         """
         dataRate = self.operationMode[C.DATA_RATE_BIT]
         if dataRate == C.TRX_RATE_110KBPS:
@@ -769,8 +885,8 @@ class DW1000:
         This function fills the array for the tuning of drxtune1a and ldecfg2 according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for the drxtune1a.    
-                data2: The array which will store the correct values for ldecfg2.    
+            drxtune1a (DW1000Register): Register which will store the correct values for the drxtune1a.
+            ldecfg2 (DW1000Register): Register which will store the correct values for ldecfg2.
         """
         pulseFrequency = self.operationMode[C.PULSE_FREQUENCY_BIT]
         if pulseFrequency == C.TX_PULSE_FREQ_16MHZ:
@@ -786,7 +902,7 @@ class DW1000:
         This function fills the array for the tuning of drxtune1b according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for drxtune1b.    
+            drxtune1b (DW1000Register): Register which will store the correct values for drxtune1b.
         """
         dataRate = self.operationMode[C.DATA_RATE_BIT]
         preambleLength = self.operationMode[C.PREAMBLE_LENGTH_BIT]
@@ -806,7 +922,7 @@ class DW1000:
         This function fills the array for the tuning of drxtune2 according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for drxtune2.
+            drxtune2 (DW1000Register): Register which will store the correct values for drxtune2.
         """
         pacSize = self.operationMode[C.PAC_SIZE_BIT]
         pulseFrequency = self.operationMode[C.PULSE_FREQUENCY_BIT]
@@ -835,6 +951,13 @@ class DW1000:
     def tuneAccToChan(self, rftxctrl, tcpgdelay, fspllcfg, fsplltune, txpower):
         """
         This function fills the arrays for the tuning of rftxctrl, tcpgdelay, fspllcfg, fsplltune and txpower according to the datasheet and the enabled mode.
+
+        Args:
+            rftxctrl (DW1000Register): Register
+            tcpgdelay (DW1000Register): Register
+            fspllcfg (DW1000Register): Register
+            fsplltune (DW1000Register): Register
+            txpower (DW1000Register): Register
         """
         channel = self.operationMode[C.CHANNEL_BIT]
         pulseFrequency = self.operationMode[C.PULSE_FREQUENCY_BIT]
@@ -899,7 +1022,7 @@ class DW1000:
         This function fills the arrays for the tuning of lderepc according to the datasheet and the enabled mode.
 
         Args:
-                data: The array which will store the correct values for lderepC.
+            lderepc (DW1000Register): Register which will store the correct values for lderepC.
         """
         preacode = self.operationMode[C.PREAMBLE_CODE_BIT]
         dataRate = self.operationMode[C.DATA_RATE_BIT]
@@ -981,7 +1104,7 @@ class DW1000:
 
     def startReceive(self):
         """
-        This function configures the chip to start the reception of a message sent by another DW1000 chip. 
+        This function configures the chip to start the reception of a message sent by another DW1000 chip.
         It turns on its receiver by setting RXENAB in the system control register.
         """
         self.sysctrl.setBit(C.RXENAB_BIT, True)
@@ -993,8 +1116,7 @@ class DW1000:
         This function reads the system event status register and checks if the message reception failed.
 
         Returns:
-                True if the reception failed.
-                False otherwise.
+            True if the reception failed. False otherwise.
         """
         val = self.sysstatus.getBitsOr([C.LDEERR_BIT, C.RXFCE_BIT, C.RXPHE_BIT, C.RXRFSL_BIT])
         if val:
@@ -1008,8 +1130,7 @@ class DW1000:
         This function reads the system event status register and checks if there was a timeout in the message reception.
 
         Returns:
-                True if there was a timeout in the reception.
-                False otherwise.
+            True if there was a timeout in the reception. False otherwise.
         """
         isTimeout = self.sysstatus.getBit(C.RXRFTO_BIT)     \
                   | self.sysstatus.getBit(C.RXPTO_BIT)      \
@@ -1032,7 +1153,7 @@ class DW1000:
         This function calculates an estimate of the power in the first path signal. See section 4.7.1 of the DW1000 user manual for further details on the calculations.
 
         Returns:
-                The estimated power in the first path signal.
+            The estimated power in the first path signal.
         """
         fpAmpl1Bytes = DW1000Register(C.RX_TIME, C.FP_AMPL1_SUB, 2)
         fpAmpl2Bytes = DW1000Register(C.RX_FQUAL, C.FP_AMPL2_SUB, 2)
@@ -1066,7 +1187,7 @@ class DW1000:
         This function calculates an estimate of the receive power level. See section 4.7.2 of the DW1000 user manual for further details on the calculation.
 
         Returns:
-                The estimated receive power for the current reception.
+            The estimated receive power for the current reception.
         """
         cirPwrBytes = DW1000Register(C.RX_FQUAL, C.CIR_PWR_SUB, 2)
         rxFrameInfo = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
@@ -1081,7 +1202,7 @@ class DW1000:
             A = C.A_64MHZ
             corrFac = C.CORRFAC_64MHZ
         estRXPower = 0
-        if ((float(cir) * float(C.TWOPOWER17)) / (float(N) * float(N)) > 0): 
+        if ((float(cir) * float(C.TWOPOWER17)) / (float(N) * float(N)) > 0):
             estRXPower = C.PWR_COEFF2 * math.log10((float(cir) * float(C.TWOPOWER17)) / (float(N) * float(N))) - A
         if estRXPower <= -C.PWR_COEFF:
             return estRXPower
@@ -1095,7 +1216,7 @@ class DW1000:
         This function calculates an estimate of the receive quality.abs
 
         Returns:
-                The estimated receive quality for the current reception.
+            The estimated receive quality for the current reception.
         """
         noiseBytes = DW1000Register(C.RX_FQUAL, C.STD_NOISE_SUB, 2)
         fpAmpl2Bytes = DW1000Register(C.RX_FQUAL, C.FP_AMPL2_SUB, 2)
@@ -1111,7 +1232,7 @@ class DW1000:
         This function reads the receive timestamp from the register and returns it.
 
         Returns:
-                The timestamp value of the last reception.
+            The timestamp value of the last reception.
         """
         rxTimeBytes = DW1000Register(C.RX_TIME, C.RX_STAMP_SUB, 5)
         self.readRegister(rxTimeBytes)
@@ -1119,7 +1240,7 @@ class DW1000:
         for i in range(0, 5):
             timestamp |= rxTimeBytes[i] << (i * 8)
         timestamp = int(round(self.correctTimestamp(timestamp)))
-        
+
         return timestamp
 
 
@@ -1128,9 +1249,8 @@ class DW1000:
         This function reads the length of the received frame. Used to read only the important parts of a transmission.
 
         Returns:
-                Length of the frame in RX_BUFFER
+            Length of the frame in RX_BUFFER
         """
-        self.rxfinfo = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
         self.readRegister(self.rxfinfo)
 
         return ((self.rxfinfo[1] & 0x3) << 8) | self.rxfinfo[0] # [RXFLE | RXFLEN]
@@ -1140,11 +1260,11 @@ class DW1000:
         """
         This function corrects the timestamp read from the RX buffer.
 
-        Args: 
-                timestamp : the timestamp you want to correct
-        
-        Returns: 
-                The corrected timestamp.
+        Args:
+            timestamp: the timestamp you want to correct
+
+        Returns:
+            The corrected timestamp.
         """
         rxPowerBase = -(self.getReceivePower() + 61.0) * 0.5
         rxPowerBaseLow = int(math.floor(rxPowerBase))
@@ -1211,6 +1331,9 @@ class DW1000:
 
 
     def getMessage(self):
+        """
+        This function returns the most recent message in the receive buffer.
+        """
         messageLen = self.getReceiveFrameLength()
         return bytearray(self.getData(messageLen))
 
@@ -1251,12 +1374,12 @@ class DW1000:
         This function configures the chip to activate a delay between transmissions or receptions.
 
         Args:
-                delay: The delay between each transmission/reception
-                unit : The unit you want to put the delay in. Microseconds is the base unit.
-                mode : "rx" | "tx"
+            delay: The delay between each transmission/reception
+            unit : The unit you want to put the delay in. Microseconds is the base unit.
+            mode : "rx" | "tx"
 
         Returns:
-                The timestamp's value with the added delay and antennaDelay.
+            The timestamp's value with the added delay and antennaDelay.
         """
         if mode.lower() == "tx":
             self.sysctrl.setBit(C.TXDLYS_BIT, True)
@@ -1292,7 +1415,7 @@ class DW1000:
     def setFrameWaitTimeout(self, waittime):
         """
         This function sets the Receiver Frame Wait Timeout Period. Use in conjunction with SYSCFG|RXWTOE (Receiver Wait Timeout Enable) and SYSSTATUS|RXRFTO.
-        
+
         Args:
             waittime: The waittime in microseconds
         """
@@ -1315,7 +1438,7 @@ class DW1000:
 
     def clearAllStatus(self):
         """
-        This function clears all the status register by writing a 1 to every bits in it. 
+        This function clears all the status register by writing a 1 to every bits in it.
         """
         self.sysstatus.setAll(0xFF)
         self.writeRegister(self.sysstatus)
@@ -1326,7 +1449,7 @@ class DW1000:
         This function reads the transmit timestamp from the register and returns it.
 
         Returns:
-                The timestamp value of the last transmission.
+            The timestamp value of the last transmission.
         """
         txTimeRegister = DW1000Register(C.TX_TIME, C.TX_STAMP_SUB, 5)
         self.readRegister(txTimeRegister)
@@ -1341,12 +1464,12 @@ class DW1000:
         This function sets the specified timestamp into the data that will be sent.
 
         Args:
-                data: The data where you will store the timestamp
-                timeStamp = The timestamp's value
-                index = The bit from where you will put the timestamp's value
+            data: The data where you will store the timestamp
+            timeStamp = The timestamp's value
+            index = The bit from where you will put the timestamp's value
 
         Returns:
-                The data with the timestamp added to it
+            The data with the timestamp added to it
         """
         for i in range(0, 5):
             data[i+index] = int((timeStamp >> (i * 8)) & C.MASK_LS_BYTE)
@@ -1357,11 +1480,11 @@ class DW1000:
         This function gets the timestamp's value written inside the specified data and returns it.
 
         Args:
-                data : the data where you want to extract the timestamp from
-                index : the index you want to start reading the data from
+            data : the data where you want to extract the timestamp from
+            index : the index you want to start reading the data from
 
         Returns:
-                The timestamp's value read from the given data.
+            The timestamp's value read from the given data.
         """
         timestamp = 0
         for i in range(0, 5):
@@ -1374,10 +1497,10 @@ class DW1000:
         This function converts the negative values of the timestamp due to the overflow into a correct one.
 
         Args:
-                timestamp : the timestamp's value you want to correct.
-        
+            timestamp : the timestamp's value you want to correct.
+
         Returns:
-                The corrected timestamp's value.
+            The corrected timestamp's value.
         """
         if timestamp < 0:
             timestamp += C.TIME_OVERFLOW
@@ -1389,12 +1512,18 @@ class DW1000:
         This function sends a message to the specified address and network. Uses 802.15.4a headers in packets.
 
         Args:
-                dstAddr: Short ID of the destination
-                dstPAN: Network identifier of the destination
-                payload (bytes): Data to be send
+            dstAddr: Short ID of the destination
+            dstPAN: Network identifier of the destination
+            payload (bytes): Data to be send
+
+        Kwargs:
+            ackReq: Request receiver to reply with acknowledge frame
+            wait4resp: Immediately turn on receiver after send
+            delay: Time in microseconds
         """
         srcAddr = self.panadr[0:2]
 
+        # Fill header structures
         header = MAC.MACHeader()
         header.frameControl.frameType = MAC.FT_DATA
         header.frameControl.secEnable = 0
@@ -1423,7 +1552,7 @@ class DW1000:
 
         self.seqNum = (self.seqNum + 1) % 256
 
-            
+
     """
     Data functions
     """
@@ -1435,7 +1564,7 @@ class DW1000:
         read the RX buffer register and converts the ASCII values into strings.
 
         Returns:
-                The data in the RX buffer as a string.
+            The data in the RX buffer as a string.
         """
         rxFrameInfoReg = DW1000Register(C.RX_FINFO, C.NO_SUB, 4)
         self.readRegister(rxFrameInfoReg)
@@ -1452,10 +1581,10 @@ class DW1000:
         This function reads a number of bytes in the RX buffer register, stores it into an array and return it.
 
         Args:
-                dataLength = The number of bytes you want to read from the rx buffer.
+            dataLength: The number of bytes you want to read from the rx buffer.
 
         Returns:
-                The data read in the RX buffer as an array byte.
+            The data read in the RX buffer as a bytearray.
         """
         data = bytearray(dataLength)
         self.readBytes(C.RX_BUFFER, C.NO_SUB, data, dataLength)
@@ -1464,10 +1593,10 @@ class DW1000:
 
     def setDataStr(self, data):
         """
-        This function converts the specified string into an array of bytes and calls the setData function. 
+        This function converts the specified string into an array of bytes and calls the setData function.
 
         Args:
-                data: The string message the transmitter will send.
+            data: The string message the transmitter will send.
         """
         dataLength = len(data) + 1
         testData = bytearray(dataLength)
@@ -1481,8 +1610,8 @@ class DW1000:
         This function writes the byte array into the TX buffer register to store the message which will be sent.
 
         Args:
-                data: the byte array which contains the data to be written in the register
-                dataLength: The size of the data which will be sent.
+            data: the byte array which contains the data to be written in the register
+            dataLength: The size of the data which will be sent.
         """
         self.writeBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
         self.readBytes(C.TX_BUFFER, C.NO_SUB, data, dataLength)
@@ -1522,11 +1651,11 @@ class DW1000:
 
     def readBytesOTP(self, address, data):
         """
-        This function reads a value from the OTP memory following 6.3.3 table 13 of the user manual 
+        This function reads a value from the OTP memory following 6.3.3 table 13 of the user manual
 
         Args:
-                address: The address to read in the OTP register.
-                data: The data that will store the value read. 
+            address: The address to read in the OTP register.
+            data: The data that will store the value read.
         """
         addressBytes = bytearray(2)
         addressBytes[0] = address & C.MASK_LS_BYTE

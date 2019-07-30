@@ -1,0 +1,58 @@
+/*!
+  \mainpage
+
+  This document provides an overview of the DWM1000 application.
+
+  \section sec_intro Introduction
+
+  The application provides a ranging and positioning system for tags.
+  This is accomplished by running several anchors at known positions and one tag which ranges
+  to these anchors and computes its own position if more than 3 tags could be reached.
+
+  \subsection ssec_sequence Sequence
+
+  The following sequence gives a crude overview over the ranging process. In the actual application,error correction is performed with retries and resends of messages.
+
+  -# Tag selects anchor
+  -# Tag ranges
+    -# Tag sends poll message to anchor, stores send timestamp (ps)
+    -# Anchor sends ack message, stores send timestamp (rs) and receive timestamp (pr)
+    -# Tag receives ack message, stores receive timestamp (rr)
+    -# Anchor sends message containing its timestamps
+    -# Tag get message and has all timestamps
+    -# Tag computes:
+      - round trip time (rtt): rr - ps
+      - reply time (rt): rs - pr
+    -# Tag computes range:
+      0.5 * (rtt - rt) * c
+  -# Select next anchor
+  -# If anchor == first anchor: Calculate position
+
+  \section sec_setup Setup
+
+  \subsection sec_config Configuration
+
+  Edit the configuration file config.py according to your needs.
+
+  - mode: One of "anchor" or "tag"
+  - pin_irq: Interrupt pin number
+  - pin_cs: Chip select pin number
+  - pin_rst: Reset pin number
+  - eid: Extended ID
+      - Only the last two bytes are used for addressing -> short id mode
+      - Must differ for all nodes
+  - pan: Must be equal for all nodes
+
+  Tag specific values:
+
+  - anchor_list: List of anchors
+  - anchor_positions: List of anchor positions
+  - logfile: Path to a logfile, will be appended
+  - rxrfto_limit: Number of receiver timeouts before resending poll
+  - tries_limit: Number of times a poll message will be send to one anchor before a new anchor will be selected
+  - webui_enable: Enable/Disable web server listening on port 8080
+
+  \subsection sec_run Run
+
+  python3 main.py
+*/

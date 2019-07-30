@@ -1,4 +1,4 @@
-"""@package docstring
+"""@package node
 Node superclass for parts of SS-TWR system.
 
 This module provides a superclass for tags and anchors.
@@ -16,6 +16,26 @@ import MAC
 import config
 
 class Node:
+    """
+    Super class for tag and anchor
+
+    Attributes:
+        dw1000 (DW1000): DW1000 device object
+        timeout: Current time to check for timeouts
+        timeout_old: Last timestamp for valid activity
+        timeout_limit: Maximum time between timeout and timeout_old
+        timeouts: Number of timeouts that occurred
+        cb_rxfcg: Callback on good frame reception
+        cb_txfrs: Callback after frame send
+        cb_rxrfto: Callback after receiver timeout
+        cb_rxerr: Callback after receiver error
+        cb_irq_while: Callback at the beginning of the interruptCB while loop
+        cb_reset: Callback if a timeout occurs
+        enableRx: Enable receiver at end of interruptCB
+        status: Temporary stores a copy of the status register
+        message: Stores last message
+        header: Storess header of last message
+    """
     def __init__(self):
         self.dw1000 = None
 
@@ -41,7 +61,8 @@ class Node:
         self.header = None # Store header of last message
 
     def setup(self):
-        """ Node setup 
+        """
+        Node setup
 
         Normally called by setup function inside subclass.
         """
@@ -56,7 +77,8 @@ class Node:
         logging.info(self.dw1000.getDeviceInfoString())
 
     def run(self):
-        """ Loop function of nodes
+        """
+        Loop function of nodes
 
         This function can be called after creation and call to setup().
         It runs the main loop and checks for inactivity of the DW1000.
@@ -78,11 +100,14 @@ class Node:
                 self.timeouts += 1
 
     def stop(self):
-        """ Stops the node """
+        """
+        Stops the node
+        """
         self.dw1000.stop()
 
     def interruptCB(self):
-        """ Interrupt routine checking the important status flags.
+        """
+        Interrupt routine checking the important status flags.
 
         Subclasses use this functionality by setting their own callback functions.
         """
@@ -107,7 +132,7 @@ class Node:
                 if self.status.getBit(C.AAT_BIT) and self.header.frameControl.ackRequest == 0:
                     self.dw1000.clearStatus([C.AAT_BIT])
                     self.enableRx = True
-                
+
                 # User CB
                 self.cb_rxfcg()
 

@@ -1,4 +1,4 @@
-"""@package docstring
+"""@package anchor
 Anchor part of SS-TWR system.
 
 This module provides an anchor class that receives and answers to tag poll messages.
@@ -8,8 +8,17 @@ import logging
 
 import node
 import DW1000Constants as C
+import config
 
 class Anchor(node.Node):
+    """
+    Anchor class.
+
+    Attributes:
+        time_recv: DWM1000 timestamp of last received frame
+        address: Address of last sender
+
+    """
     def __init__(self):
         super().__init__()
 
@@ -45,6 +54,7 @@ class Anchor(node.Node):
     def cb_rxfcg_(self):
         """ Custom rxfcg callback """
         self.time_recv = self.dw1000.getReceiveTimestamp()
+        self.address = self.header.srcAddr
 
     def cb_txfrs_(self):
         """ Custom txfrs callback """
@@ -52,7 +62,7 @@ class Anchor(node.Node):
             time_send = self.dw1000.getTransmitTimestamp()
             reply_time = self.dw1000.wrapTimestamp(time_send - self.time_recv)
             logging.debug("Sending reply time {}".format(reply_time))
-            self.dw1000.sendMessage(b"\x00\x3b", b"\xca\xde", (str(self.time_recv)+ " " + str(time_send)).encode(), ackReq=False, wait4resp=True, delay=0)
+            self.dw1000.sendMessage(self.address, config.pan.to_bytes(2, byteorder='little'), (str(self.time_recv)+ " " + str(time_send)).encode(), ackReq=False, wait4resp=True, delay=0)
             self.enableRx=False
 
     def cb_rxrfto_(self):

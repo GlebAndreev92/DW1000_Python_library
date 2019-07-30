@@ -1,4 +1,5 @@
-"""
+"""@package DW1000Constants
+
 This python module is used to store every constants relevant for the DW1000 module and scripts.
 """
 

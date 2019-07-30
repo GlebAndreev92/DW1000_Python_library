@@ -1,3 +1,9 @@
+"""@package MAC
+802.15.4a MAC structures.
+
+This module provides all functions necessary to encode/decode MAC header and payloads of messages from byte strings.
+"""
+
 from construct import Struct, BitStruct, BitsInteger, Bit, Padding, Embedded, Byte, Probe, If, IfThenElse, Tell
 
 # Frame Control Frame Type
@@ -104,7 +110,19 @@ macPayloadBeaconStruct = Struct(
 )
 
 class FrameControl:
-    """ FrameControl field of a 802.15.4a message """
+    """
+    FrameControl field of a 802.15.4a message
+
+    Attributes:
+        frameType: FT_BEACON | FT_DATA | FT_ACK | FT_MAC
+        secEnable: Enable/disable security
+        framePending: Used for multi frame messages
+        ackRequest: Request an acknowledge frame from receiver
+        panCompression: Only use destPAN
+        destAddrMode: AD_EAD | AD_SAD | AD_NOT
+        frameVersion: IEEE802_15_4_2003 | IEEE802_15_4
+        srcAddrMode: AD_EAD | AD_SAD | AD_NOT
+    """
     def __init__(self):
         self.frameType = 0
         self.secEnable = 0
@@ -116,7 +134,19 @@ class FrameControl:
         self.srcAddrMode = 0
 
 class MACHeader():
-    """ MAC header of a 802.15.4a message """
+    """
+    MAC header of a 802.15.4a message
+
+    Attributes:
+        frameControl: Frame control field
+        seqNumber: Sequence number of the message
+        destPAN: Destination private area network identifier
+        destAddr: Destination address, either EID, SID or empty
+        srcPAN: Source private area network identifier
+        srcAddr: Source address, either EID, SID or empty
+        auxSecHdr: Only relevant if frameControl.secEnable is True
+        dataOffset: Index of start of payload
+    """
     def __init__(self):
         self.frameControl = FrameControl()
         self.seqNumber = 0
@@ -147,7 +177,7 @@ class MACHeader():
             rawhdr (bytes): Bytes containing a header
 
         Returns:
-            (MACHeader)
+            (MACHeader): MAC header of the message
         """
         global macHeaderStruct
 
@@ -178,7 +208,7 @@ class MACHeader():
         ret += "srcAddr: {}\n".format(bytes(self.srcAddr))
         ret += "auxSecHdr: {}\n".format(bytes(self.auxSecHdr))
         ret += "dataOffset: {}".format(self.dataOffset)
-        
+
         return ret
 
 def getPayload(message):
@@ -199,7 +229,7 @@ def getPayload(message):
 
 def getHeaderString(message):
     """
-    This is a callback called from the module's interrupt handler when a reception was successful. 
+    This is a callback called from the module's interrupt handler when a reception was successful.
     It sets the received receivedAck as True so the loop can continue.
 
     Args:
