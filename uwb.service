@@ -7,8 +7,8 @@ User=pi
 Type=simple
 Restart=always
 SyslogIdentifier=uwb
-WorkingDirectory=/home/pi/DW1000/
-ExecStart=/usr/bin/python3 /home/pi/DW1000/main.py
+WorkingDirectory=/home/pi/dw1000/
+ExecStart=/usr/bin/python3 /home/pi/dw1000/main.py
 
 [Install]
 WantedBy=multi-user.target
